@@ -24,7 +24,24 @@ struct User {
     let age: Int
 }
 
-/// 支援 Collection 型別的 Post 結構  
+/// Simple Enum（無參數）
+@Codable
+enum Direction {
+    case north
+    case south
+    case east
+    case west
+}
+
+/// Enum with Associated Values（有關聯值）
+@Codable
+enum NetworkResponse {
+    case success(data: String, statusCode: Int)
+    case failure(error: String)
+    case empty
+}
+
+/// 支援 Collection 型別的 Post 結構
 @Codable
 struct Post {
     let id: String
