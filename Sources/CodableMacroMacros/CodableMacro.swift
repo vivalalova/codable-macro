@@ -65,6 +65,10 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         members.append(try generateCodingKeys(properties: properties))
         members.append(try generateInitFromDecoder(properties: properties))
         members.append(try generateEncodeMethod(properties: properties))
+        members.append(try generateFromDictMethod())
+        members.append(try generateFromDictArrayMethod())
+        members.append(try generateToDictMethod())
+        members.append(try generateToDictArrayMethod())
 
         return members
     }
@@ -76,6 +80,10 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         members.append(try generateCodingKeys(properties: properties))
         members.append(try generateInitFromDecoderForClass(properties: properties))
         members.append(try generateEncodeMethod(properties: properties))
+        members.append(try generateFromDictMethod())
+        members.append(try generateFromDictArrayMethod())
+        members.append(try generateToDictMethod())
+        members.append(try generateToDictArrayMethod())
 
         return members
     }
@@ -92,9 +100,19 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
             context.diagnose(diagnostic)
             return []
         case .simple:
-            return try generateSimpleEnumCodable(declaration)
+            var members = try generateSimpleEnumCodable(declaration)
+            members.append(try generateFromDictMethod())
+            members.append(try generateFromDictArrayMethod())
+            members.append(try generateToDictMethod())
+            members.append(try generateToDictArrayMethod())
+            return members
         case .associatedValues:
-            return try generateAssociatedValuesEnumCodable(declaration)
+            var members = try generateAssociatedValuesEnumCodable(declaration)
+            members.append(try generateFromDictMethod())
+            members.append(try generateFromDictArrayMethod())
+            members.append(try generateToDictMethod())
+            members.append(try generateToDictArrayMethod())
+            return members
         }
     }
 }
@@ -225,6 +243,57 @@ extension CodableMacro {
         """
         
         return DeclSyntax(stringLiteral: encodeMethodCode)
+    }
+
+    /// 生成 fromDict(_:) 靜態方法
+    static func generateFromDictMethod() throws -> DeclSyntax {
+        let code = """
+        static func fromDict(_ dict: [String: Any]) throws -> Self {
+            let jsonData = try JSONSerialization.data(withJSONObject: dict, options: [])
+            let decoder = JSONDecoder()
+            return try decoder.decode(Self.self, from: jsonData)
+        }
+        """
+        return DeclSyntax(stringLiteral: code)
+    }
+
+    /// 生成 fromDictArray(_:) 靜態方法
+    static func generateFromDictArrayMethod() throws -> DeclSyntax {
+        let code = """
+        static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
+            try array.map { dict in
+                try fromDict(dict)
+            }
+        }
+        """
+        return DeclSyntax(stringLiteral: code)
+    }
+
+    /// 生成 toDict() 實例方法
+    static func generateToDictMethod() throws -> DeclSyntax {
+        let code = """
+        func toDict() throws -> [String: Any] {
+            let encoder = JSONEncoder()
+            let jsonData = try encoder.encode(self)
+            guard let dict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] else {
+                throw CodableMacro.DictConversionError.invalidDictionaryStructure
+            }
+            return dict
+        }
+        """
+        return DeclSyntax(stringLiteral: code)
+    }
+
+    /// 生成 toDictArray(_:) 靜態方法
+    static func generateToDictArrayMethod() throws -> DeclSyntax {
+        let code = """
+        static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
+            try array.map { instance in
+                try instance.toDict()
+            }
+        }
+        """
+        return DeclSyntax(stringLiteral: code)
     }
 }
 
