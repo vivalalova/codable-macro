@@ -19,7 +19,7 @@ let package = Package(
             targets: ["CodableMacro"])
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "510.0.1")
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "602.0.0")
     ],
     targets: [
         // Macro implementation that performs the source transformation of a macro
