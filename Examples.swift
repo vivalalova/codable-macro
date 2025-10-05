@@ -1,5 +1,9 @@
 import Foundation
-import CodableMacro
+
+/// @Codable macro 讓結構自動符合 Codable protocol
+@attached(member, names: named(CodingKeys), named(init(from:)), named(encode(to:)))
+@attached(extension, conformances: Codable)
+public macro Codable() = #externalMacro(module: "CodableMacroMacros", type: "CodableMacro")
 
 // MARK: - 範例使用
 
