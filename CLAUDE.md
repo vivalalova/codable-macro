@@ -39,6 +39,10 @@ swift run --package-path . Examples.swift --demo
      - `generateCodingKeys()`: 產生 CodingKeys enum
      - `generateInitFromDecoder()`: 產生 `init(from:)` 方法，Optional 屬性使用 `decodeIfPresent`
      - `generateEncodeMethod()`: 產生 `encode(to:)` 方法，Optional 屬性使用 `encodeIfPresent`
+     - `generateFromDictMethod()`: 產生 `fromDict(_:)` 靜態方法，從字典轉換為實例
+     - `generateFromDictArrayMethod()`: 產生 `fromDictArray(_:)` 靜態方法
+     - `generateToDictMethod()`: 產生 `toDict()` 實例方法，將實例轉換為字典
+     - `generateToDictArrayMethod()`: 產生 `toDictArray(_:)` 靜態方法
 
 3. **Tests (Tests/CodableMacroTests/)**
    - 使用 Swift Testing 框架
@@ -56,6 +60,7 @@ swift run --package-path . Examples.swift --demo
 - **屬性資訊提取**：使用 SwiftSyntax 的 `VariableDeclSyntax` 和 `IdentifierPatternSyntax` 解析
 - **程式碼生成方式**：使用字串模板而非 SwiftSyntaxBuilder DSL，提高可讀性
 - **無標籤參數處理**：Associated values enum 的無標籤參數使用 `_0`, `_1`, `_2` 命名
+- **字典轉換功能**：利用 JSONSerialization 作為橋接，重用現有 Codable 實作
 
 ## 測試策略
 
@@ -76,6 +81,7 @@ swift run --package-path . Examples.swift --demo
 5. **Enum 測試**：Simple enum、Associated values enum（有/無標籤）、Raw value enum
 6. **邊界案例測試**：空 struct、單一屬性、單一 case enum
 7. **錯誤案例測試**：actor、protocol
+8. **Dictionary 轉換測試**：Struct、Class、Enum 的字典轉換功能
 
 ## 專案限制
 
