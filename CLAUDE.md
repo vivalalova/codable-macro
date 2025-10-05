@@ -47,10 +47,15 @@ swift run --package-path . Examples.swift --demo
 
 ### 關鍵設計決策
 
-- **只支援 struct 和 class**：其他型別（enum、actor、protocol）會拋出 `CodableMacroError.onlyApplicableToStructsAndClasses`
+- **支援 struct、class 和 enum**：actor 和 protocol 會拋出錯誤
+- **Enum 類型分類**：
+  - Simple enum：無 raw value、無 associated values，使用 `singleValueContainer` 編碼為字串
+  - Associated values enum：使用 `nestedContainer` 處理複雜結構
+  - Raw value enum：偵測後產生 warning，不產生程式碼（已自動符合 Codable）
 - **自動判斷 Optional**：透過型別字串結尾是否為 `?` 判斷，自動選用 `decodeIfPresent`/`encodeIfPresent`
 - **屬性資訊提取**：使用 SwiftSyntax 的 `VariableDeclSyntax` 和 `IdentifierPatternSyntax` 解析
 - **程式碼生成方式**：使用字串模板而非 SwiftSyntaxBuilder DSL，提高可讀性
+- **無標籤參數處理**：Associated values enum 的無標籤參數使用 `_0`, `_1`, `_2` 命名
 
 ## 測試策略
 
@@ -67,9 +72,10 @@ swift run --package-path . Examples.swift --demo
 1. **基本功能測試**：簡單 struct、基本型別
 2. **型別變化測試**：Optional、Collection、巢狀型別
 3. **屬性修飾詞測試**：let、var、混合
-4. **宣告型別測試**：struct、class
-5. **邊界案例測試**：空 struct、單一屬性
-6. **錯誤案例測試**：enum、actor、protocol
+4. **宣告型別測試**：struct、class、enum
+5. **Enum 測試**：Simple enum、Associated values enum（有/無標籤）、Raw value enum
+6. **邊界案例測試**：空 struct、單一屬性、單一 case enum
+7. **錯誤案例測試**：actor、protocol
 
 ## 專案限制
 
@@ -77,3 +83,5 @@ swift run --package-path . Examples.swift --demo
 - 不支援自訂 CodingKeys 映射
 - 不支援排除特定屬性
 - class 的 `init(from:)` 會自動加上 `required` 關鍵字
+- Enum with raw value 無需使用 macro（Swift 已自動符合 Codable）
+- Enum with associated values 的參數型別必須符合 Codable
