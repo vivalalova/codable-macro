@@ -173,6 +173,363 @@ struct CodableMacroTests {
             macros: ["Codable": CodableMacro.self]
         )
     }
+
+    @Test("var 屬性測試")
+    func testVarProperties() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct MutableUser {
+                var id: String
+                var name: String
+                var age: Int
+            }
+            """,
+            expandedSource: """
+            struct MutableUser {
+                var id: String
+                var name: String
+                var age: Int
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case name
+                    case age
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.name = try container.decode(String.self, forKey: .name)
+                    self.age = try container.decode(Int.self, forKey: .age)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(name, forKey: .name)
+                    try container.encode(age, forKey: .age)
+                }
+            }
+
+            extension MutableUser: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("混合 let 和 var 屬性測試")
+    func testMixedLetVarProperties() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct Article {
+                let id: String
+                var title: String
+                var content: String
+                let createdAt: Date
+            }
+            """,
+            expandedSource: """
+            struct Article {
+                let id: String
+                var title: String
+                var content: String
+                let createdAt: Date
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case title
+                    case content
+                    case createdAt
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.title = try container.decode(String.self, forKey: .title)
+                    self.content = try container.decode(String.self, forKey: .content)
+                    self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(title, forKey: .title)
+                    try container.encode(content, forKey: .content)
+                    try container.encode(createdAt, forKey: .createdAt)
+                }
+            }
+
+            extension Article: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("class 類型測試")
+    func testClassType() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            class Person {
+                let id: String
+                let name: String
+                let age: Int
+            }
+            """,
+            expandedSource: """
+            class Person {
+                let id: String
+                let name: String
+                let age: Int
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case name
+                    case age
+                }
+
+                required init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.name = try container.decode(String.self, forKey: .name)
+                    self.age = try container.decode(Int.self, forKey: .age)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(name, forKey: .name)
+                    try container.encode(age, forKey: .age)
+                }
+            }
+
+            extension Person: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("混合型別測試 - 基本型別 + Optional + Collection")
+    func testComplexMixedTypes() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct Product {
+                let id: String
+                let name: String
+                let price: Double
+                let description: String?
+                let tags: [String]
+                let metadata: [String: String]?
+                let isAvailable: Bool
+            }
+            """,
+            expandedSource: """
+            struct Product {
+                let id: String
+                let name: String
+                let price: Double
+                let description: String?
+                let tags: [String]
+                let metadata: [String: String]?
+                let isAvailable: Bool
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case name
+                    case price
+                    case description
+                    case tags
+                    case metadata
+                    case isAvailable
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.name = try container.decode(String.self, forKey: .name)
+                    self.price = try container.decode(Double.self, forKey: .price)
+                    self.description = try container.decodeIfPresent(String.self, forKey: .description)
+                    self.tags = try container.decode([String].self, forKey: .tags)
+                    self.metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata)
+                    self.isAvailable = try container.decode(Bool.self, forKey: .isAvailable)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(name, forKey: .name)
+                    try container.encode(price, forKey: .price)
+                    try container.encodeIfPresent(description, forKey: .description)
+                    try container.encode(tags, forKey: .tags)
+                    try container.encodeIfPresent(metadata, forKey: .metadata)
+                    try container.encode(isAvailable, forKey: .isAvailable)
+                }
+            }
+
+            extension Product: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("巢狀型別測試 - Optional 陣列")
+    func testNestedArrayType() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct Album {
+                let id: String
+                let title: String
+                let tracks: [[String]]
+            }
+            """,
+            expandedSource: """
+            struct Album {
+                let id: String
+                let title: String
+                let tracks: [[String]]
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case title
+                    case tracks
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.title = try container.decode(String.self, forKey: .title)
+                    self.tracks = try container.decode([[String]].self, forKey: .tracks)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(title, forKey: .title)
+                    try container.encode(tracks, forKey: .tracks)
+                }
+            }
+
+            extension Album: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("邊界案例 - 單一屬性")
+    func testSingleProperty() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct SimpleId {
+                let id: String
+            }
+            """,
+            expandedSource: """
+            struct SimpleId {
+                let id: String
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                }
+            }
+
+            extension SimpleId: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("邊界案例 - 空 struct")
+    func testEmptyStruct() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct EmptyStruct {
+            }
+            """,
+            expandedSource: """
+            struct EmptyStruct {
+
+                enum CodingKeys: String, CodingKey {
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                }
+            }
+
+            extension EmptyStruct: Codable {
+            }
+            """,
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("錯誤案例 - actor 類型不支援")
+    func testActorNotSupported() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            actor Counter {
+                var count: Int = 0
+            }
+            """,
+            expandedSource: """
+            actor Counter {
+                var count: Int = 0
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Codable 只能應用於 struct 或 class", line: 1, column: 1)
+            ],
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
+
+    @Test("錯誤案例 - protocol 不支援")
+    func testProtocolNotSupported() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            protocol Identifiable {
+                var id: String { get }
+            }
+            """,
+            expandedSource: """
+            protocol Identifiable {
+                var id: String { get }
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Codable 只能應用於 struct 或 class", line: 1, column: 1)
+            ],
+            macros: ["Codable": CodableMacro.self]
+        )
+    }
 }
 
 /// 手動測試 - 驗證產生的程式碼能否正確運作

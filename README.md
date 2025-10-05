@@ -127,11 +127,20 @@ struct Comment {
 }
 ```
 
+## 支援的型別
+
+- ✅ `struct`
+- ✅ `class`（自動產生 `required init`）
+- ✅ `let` 和 `var` 屬性
+- ✅ Optional 型別（自動使用 `decodeIfPresent`/`encodeIfPresent`）
+- ✅ Collection 型別（Array、Dictionary 等）
+- ✅ 巢狀 Codable 型別
+
 ## 限制
 
-- 只能應用於 `struct` 和 `class`
-- 不能應用於 `enum`
-- 所有屬性的型別必須符合 Codable 協定
+- ❌ 不支援 `enum`、`actor`、`protocol`
+- ❌ 所有屬性必須有型別標註
+- ❌ 屬性型別必須符合 Codable 協定
 
 ## JSON 編碼/解碼範例
 
@@ -161,8 +170,8 @@ swift build
 # 執行測試
 swift test
 
-# 運行範例
-swift run --package-path . Examples.swift --demo
+# 查看使用範例
+# 範例程式碼位於 Examples.swift 和 TestExample.swift
 ```
 
 ## 技術實作
