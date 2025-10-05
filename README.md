@@ -106,6 +106,64 @@ struct Post {
 }
 ```
 
+### Enum 型別支援
+
+#### Simple Enum（無參數）
+
+```swift
+@Codable
+enum Direction {
+    case north
+    case south
+    case east
+    case west
+}
+
+// 編碼為字串："north", "south" 等
+```
+
+#### Enum with Associated Values（有關聯值）
+
+```swift
+@Codable
+enum NetworkResponse {
+    case success(data: String, statusCode: Int)
+    case failure(error: String)
+    case empty
+}
+
+// 編碼為：
+// {"success": {"data": "...", "statusCode": 200}}
+// {"failure": {"error": "Network timeout"}}
+// {"empty": {}}
+```
+
+#### 無標籤關聯值
+
+```swift
+@Codable
+enum Result {
+    case success(String)
+    case failure(Int, String)
+}
+
+// 無標籤參數使用 _0, _1 作為 key
+// {"success": {"_0": "OK"}}
+// {"failure": {"_0": 500, "_1": "Error"}}
+```
+
+#### Enum with Raw Value（已自動符合）
+
+```swift
+// ⚠️ 不需要使用 @Codable macro
+enum Status: String, Codable {
+    case active
+    case inactive
+}
+
+// Raw value enum 已自動符合 Codable
+```
+
 ### 巢狀型別支援
 
 ```swift
@@ -131,6 +189,7 @@ struct Comment {
 
 - ✅ `struct`
 - ✅ `class`（自動產生 `required init`）
+- ✅ `enum`（Simple enum、Associated values enum）
 - ✅ `let` 和 `var` 屬性
 - ✅ Optional 型別（自動使用 `decodeIfPresent`/`encodeIfPresent`）
 - ✅ Collection 型別（Array、Dictionary 等）
@@ -138,7 +197,8 @@ struct Comment {
 
 ## 限制
 
-- ❌ 不支援 `enum`、`actor`、`protocol`
+- ❌ 不支援 `actor`、`protocol`
+- ❌ Enum with raw value 已自動符合 Codable，無需使用 macro
 - ❌ 所有屬性必須有型別標註
 - ❌ 屬性型別必須符合 Codable 協定
 
