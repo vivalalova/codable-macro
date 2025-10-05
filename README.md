@@ -5,8 +5,9 @@
 ## 功能特色
 
 - ✅ 自動產生 `CodingKeys` enum
-- ✅ 自動產生 `init(from decoder: Decoder)` 初始化方法  
+- ✅ 自動產生 `init(from decoder: Decoder)` 初始化方法
 - ✅ 自動產生 `encode(to encoder: Encoder)` 編碼方法
+- ✅ 自動產生字典轉換方法（`fromDict`、`toDict` 等）
 - ✅ 自動添加 Codable 協定符合
 - ✅ 支援基本型別 (String, Int, Double, Bool, Date 等)
 - ✅ 支援 Optional 型別 (`String?`, `Int?` 等)
@@ -105,6 +106,45 @@ struct Post {
     let isPublished: Bool
 }
 ```
+
+### Dictionary 轉換
+
+@Codable macro 自動產生字典轉換方法，方便與動態資料交互：
+
+```swift
+@Codable
+struct User {
+    let id: String
+    let name: String
+    let age: Int
+}
+
+// 從字典建立實例
+let dict: [String: Any] = [
+    "id": "123",
+    "name": "Alice",
+    "age": 30
+]
+let user = try User.fromDict(dict)
+
+// 將實例轉換為字典
+let outputDict = try user.toDict()
+// outputDict = ["id": "123", "name": "Alice", "age": 30]
+
+// 批次轉換
+let usersArray: [[String: Any]] = [
+    ["id": "123", "name": "Alice", "age": 30],
+    ["id": "456", "name": "Bob", "age": 25]
+]
+let users = try User.fromDictArray(usersArray)
+let dicts = try User.toDictArray(users)
+```
+
+**自動產生的方法：**
+- `static func fromDict(_ dict: [String: Any]) throws -> Self` - 從字典建立實例
+- `static func fromDictArray(_ array: [[String: Any]]) throws -> [Self]` - 從字典陣列建立實例陣列
+- `func toDict() throws -> [String: Any]` - 將實例轉換為字典
+- `static func toDictArray(_ array: [Self]) throws -> [[String: Any]]` - 將實例陣列轉換為字典陣列
 
 ### Enum 型別支援
 
