@@ -129,9 +129,44 @@ func demonstrateUsage() {
         print("\nPost JSON:\n\(postJson)")
         
         print("\n✅ JSON 編碼成功！")
-        
+
     } catch {
         print("❌ 編碼失敗: \(error)")
+    }
+
+    // 字典轉換測試
+    do {
+        print("\n=== 字典轉換功能 ===")
+
+        // 從字典建立 User
+        let userDict: [String: Any] = [
+            "id": "user-100",
+            "name": "Charlie",
+            "email": "charlie@example.com",
+            "age": 28
+        ]
+        let dictUser = try User.fromDict(userDict)
+        print("✅ 從字典建立 User: \(dictUser.name ?? "N/A")")
+
+        // 將 User 轉換為字典
+        let userOutputDict = try user.toDict()
+        print("✅ User 轉換為字典: \(userOutputDict.keys.count) keys")
+
+        // 批次轉換
+        let usersArray: [[String: Any]] = [
+            ["id": "1", "name": "User1", "email": "user1@example.com", "age": 25],
+            ["id": "2", "name": "User2", "email": "user2@example.com", "age": 30]
+        ]
+        let batchUsers = try User.fromDictArray(usersArray)
+        print("✅ 批次轉換: \(batchUsers.count) users")
+
+        let batchDicts = try User.toDictArray(batchUsers)
+        print("✅ 批次轉回字典: \(batchDicts.count) dicts")
+
+        print("\n✅ 字典轉換功能正常運作！")
+
+    } catch {
+        print("❌ 字典轉換失敗: \(error)")
     }
 }
 
