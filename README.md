@@ -13,7 +13,7 @@
 - ✅ **支援 @CodingKey 巢狀路徑映射（如 `user.profile.name`）**
 - ✅ **支援 @CodingIgnored 忽略特定屬性**
 - ✅ **支援 Public 可見性（自動產生 public 修飾詞）**
-- ✅ **支援 Optional 屬性預設值**
+- ✅ **支援屬性預設值（Optional 和非 Optional）**
 - ✅ 支援基本型別 (String, Int, Double, Bool 等)
 - ✅ 支援 Foundation 型別 (Date, UUID, URL, Data, Decimal 等)
 - ✅ 支援 Optional 型別 (`String?`, `Int?` 等)
@@ -153,7 +153,7 @@ struct UserInfo {
 - 支援任意深度的巢狀路徑（例如：`a.b.c.d.e`）
 - 可以與簡單屬性混合使用
 - 多個屬性可以共享路徑前綴（例如：`user.name` 和 `user.age`）
-- Optional 屬性支援預設值（需使用 `var` 而非 `let`）
+- 屬性支援預設值：`let` 保持預設值無法覆蓋，`var` 可從 JSON 覆蓋
 
 ### 忽略特定屬性
 
@@ -189,23 +189,48 @@ public struct APIResponse {
 // 生成的 init(from:) 和 encode(to:) 都會是 public
 ```
 
-### Optional 屬性預設值
+### 預設值支援
 
-Optional 屬性可以宣告預設值，當 JSON 缺少該欄位時自動使用預設值：
+屬性可以宣告預設值，當 JSON 解碼缺少該欄位時自動使用預設值。
+
+#### let 屬性預設值
+
+`let` 屬性有預設值時，會保持預設值且**無法從 JSON 覆蓋**（因為 let 無法被初始化兩次）：
 
 ```swift
 @Codable
-struct Config {
-    let timeout: Int? = 30
-    let retries: Int? = 3
-    let items: [String]? = []
+struct ImmutableConfig {
+    let apiKey: String
+    let timeout: Int = 30      // 保持預設值 30，JSON 無法覆蓋
+    let retries: Int = 3       // 保持預設值 3，JSON 無法覆蓋
 }
 
-// JSON: {}
-// 解碼結果: Config(timeout: 30, retries: 3, items: [])
+// JSON: {"apiKey": "secret"}
+// 解碼結果: ImmutableConfig(apiKey: "secret", timeout: 30, retries: 3)
 
-// JSON: {"timeout": 60}
-// 解碼結果: Config(timeout: 60, retries: 3, items: [])
+// JSON: {"apiKey": "secret", "timeout": 60}
+// 解碼結果: ImmutableConfig(apiKey: "secret", timeout: 30, retries: 3)
+// 注意：timeout 仍然是 30，無法從 JSON 覆蓋
+```
+
+#### var 屬性預設值
+
+`var` 屬性有預設值時，可以從 JSON 覆蓋：
+
+```swift
+@Codable
+struct MutableConfig {
+    let apiKey: String
+    var timeout: Int = 30      // 可從 JSON 覆蓋
+    var retries: Int? = 3      // Optional 預設值，可從 JSON 覆蓋
+    var items: [String] = []   // Collection 預設值，可從 JSON 覆蓋
+}
+
+// JSON: {"apiKey": "secret"}
+// 解碼結果: MutableConfig(apiKey: "secret", timeout: 30, retries: 3, items: [])
+
+// JSON: {"apiKey": "secret", "timeout": 60}
+// 解碼結果: MutableConfig(apiKey: "secret", timeout: 60, retries: 3, items: [])
 ```
 
 ### Optional 型別支援

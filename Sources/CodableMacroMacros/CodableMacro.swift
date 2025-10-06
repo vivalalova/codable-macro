@@ -319,6 +319,11 @@ extension CodableMacro {
 
         // 處理簡單屬性
         for property in simpleProperties {
+            // let 屬性有預設值時，跳過初始化（使用成員預設值）
+            if property.isLet && property.defaultValue != nil {
+                continue
+            }
+
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
                 if let defaultValue = property.defaultValue {
@@ -327,7 +332,12 @@ extension CodableMacro {
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
                 }
             } else {
-                codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
+                // 非 Optional 屬性有預設值時，使用 decodeIfPresent + 預設值
+                if let defaultValue = property.defaultValue {
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(property.type).self, forKey: .\(property.name)) ?? \(defaultValue)")
+                } else {
+                    codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
+                }
             }
         }
 
@@ -373,6 +383,12 @@ extension CodableMacro {
         // 解碼每個屬性
         for property in group {
             guard let path = property.keyPath, let lastKey = path.last else { continue }
+
+            // let 屬性有預設值時，跳過初始化（使用成員預設值）
+            if property.isLet && property.defaultValue != nil {
+                continue
+            }
+
             let containerName = path.count > 1 ? "container\(path.count - 1)" : "rootContainer"
 
             if property.isOptional {
@@ -383,7 +399,12 @@ extension CodableMacro {
                     lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
                 }
             } else {
-                lines.append("    self.\(property.name) = try \(containerName).decode(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                // 非 Optional 屬性有預設值時，使用 decodeIfPresent + 預設值
+                if let defaultValue = property.defaultValue {
+                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+                } else {
+                    lines.append("    self.\(property.name) = try \(containerName).decode(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                }
             }
         }
 
@@ -406,6 +427,11 @@ extension CodableMacro {
 
         // 處理簡單屬性
         for property in simpleProperties {
+            // let 屬性有預設值時，跳過初始化（使用成員預設值）
+            if property.isLet && property.defaultValue != nil {
+                continue
+            }
+
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
                 if let defaultValue = property.defaultValue {
@@ -414,7 +440,12 @@ extension CodableMacro {
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
                 }
             } else {
-                codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
+                // 非 Optional 屬性有預設值時，使用 decodeIfPresent + 預設值
+                if let defaultValue = property.defaultValue {
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(property.type).self, forKey: .\(property.name)) ?? \(defaultValue)")
+                } else {
+                    codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
+                }
             }
         }
 
