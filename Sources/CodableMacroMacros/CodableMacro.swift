@@ -63,7 +63,12 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         let isPublic = isPublicType(declaration)
         var members: [DeclSyntax] = []
 
-        members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        // 只有當有簡單屬性時才生成 CodingKeys
+        let (simpleProperties, _) = groupProperties(properties)
+        if !simpleProperties.isEmpty {
+            members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        }
+
         members.append(try generateInitFromDecoder(properties: properties, isPublic: isPublic))
         members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
         members.append(try generateFromDictMethod(isPublic: isPublic))
@@ -79,7 +84,12 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         let isPublic = isPublicType(declaration)
         var members: [DeclSyntax] = []
 
-        members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        // 只有當有簡單屬性時才生成 CodingKeys
+        let (simpleProperties, _) = groupProperties(properties)
+        if !simpleProperties.isEmpty {
+            members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        }
+
         members.append(try generateInitFromDecoderForClass(properties: properties, isPublic: isPublic))
         members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
         members.append(try generateFromDictMethod(isPublic: isPublic))
@@ -128,6 +138,7 @@ struct Property {
     let isOptional: Bool
     let isLet: Bool
     let customKey: String?
+    let keyPath: [String]?  // 新增：巢狀路徑陣列，例如 ["user", "profile", "name"]
     let isIgnored: Bool
     let defaultValue: String?
 }
@@ -198,12 +209,19 @@ extension CodableMacro {
                     defaultValue = initializer.value.trimmedDescription
                 }
 
+                // 解析巢狀路徑
+                var keyPath: [String]? = nil
+                if let customKey = customKey, customKey.contains(".") {
+                    keyPath = customKey.split(separator: ".").map(String.init)
+                }
+
                 let property = Property(
                     name: name,
                     type: typeDescription,
                     isOptional: isOptional,
                     isLet: isLet,
                     customKey: customKey,
+                    keyPath: keyPath,
                     isIgnored: isIgnored,
                     defaultValue: defaultValue
                 )
@@ -224,6 +242,42 @@ extension CodableMacro {
         }
         return false
     }
+
+    /// 將屬性按照路徑分組，用於生成巢狀 container
+    /// 返回：(簡單屬性, 巢狀路徑屬性分組)
+    static func groupProperties(_ properties: [Property]) -> ([Property], [[Property]]) {
+        let simpleProperties = properties.filter { $0.keyPath == nil }
+        let nestedProperties = properties.filter { $0.keyPath != nil }
+
+        // 將巢狀屬性按路徑前綴分組
+        var pathGroups: [[Property]] = []
+        var processedIndices: Set<Int> = []
+
+        for (index, property) in nestedProperties.enumerated() {
+            if processedIndices.contains(index) { continue }
+
+            var group = [property]
+            processedIndices.insert(index)
+
+            // 查找其他具有相同路徑前綴的屬性
+            for (otherIndex, otherProperty) in nestedProperties.enumerated() {
+                if otherIndex == index || processedIndices.contains(otherIndex) { continue }
+
+                // 檢查是否共享路徑前綴
+                if let path1 = property.keyPath, let path2 = otherProperty.keyPath {
+                    let minLength = min(path1.count, path2.count) - 1  // 至少共享到倒數第二層
+                    if minLength > 0 && path1.prefix(minLength) == path2.prefix(minLength) {
+                        group.append(otherProperty)
+                        processedIndices.insert(otherIndex)
+                    }
+                }
+            }
+
+            pathGroups.append(group)
+        }
+
+        return (simpleProperties, pathGroups)
+    }
 }
 
 // MARK: - 程式碼生成器
@@ -233,7 +287,9 @@ extension CodableMacro {
     /// 生成 CodingKeys enum
     static func generateCodingKeys(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
-        let cases = properties.map { property in
+        // 過濾掉有巢狀路徑的屬性，它們不會出現在 CodingKeys 中
+        let simpleProperties = properties.filter { $0.keyPath == nil }
+        let cases = simpleProperties.map { property in
             if let customKey = property.customKey {
                 return "case \(property.name) = \"\(customKey)\""
             } else {
@@ -253,21 +309,32 @@ extension CodableMacro {
     static func generateInitFromDecoder(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
-        codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
 
-        for property in properties {
+        let (simpleProperties, nestedGroups) = groupProperties(properties)
+
+        // 如果有簡單屬性，需要 container
+        if !simpleProperties.isEmpty {
+            codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
+        }
+
+        // 處理簡單屬性
+        for property in simpleProperties {
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
                 if let defaultValue = property.defaultValue {
-                    // 有預設值：使用 ?? defaultValue
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name)) ?? \(defaultValue)")
                 } else {
-                    // 無預設值：原邏輯
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
                 }
             } else {
                 codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
             }
+        }
+
+        // 處理巢狀路徑屬性
+        for group in nestedGroups {
+            let nestedCode = generateNestedDecoding(group: group)
+            codeLines.append(nestedCode)
         }
 
         let bodyCode = codeLines.joined(separator: "\n        ")
@@ -280,25 +347,81 @@ extension CodableMacro {
         return DeclSyntax(stringLiteral: initMethodCode)
     }
 
+    /// 生成巢狀路徑的解碼邏輯
+    static func generateNestedDecoding(group: [Property]) -> String {
+        guard let firstProperty = group.first, let keyPath = firstProperty.keyPath else {
+            return ""
+        }
+
+        var lines: [String] = []
+        lines.append("do {")
+        lines.append("    struct DynamicKey: CodingKey {")
+        lines.append("        var stringValue: String")
+        lines.append("        var intValue: Int? { nil }")
+        lines.append("        init(stringValue: String) { self.stringValue = stringValue }")
+        lines.append("        init?(intValue: Int) { nil }")
+        lines.append("    }")
+        lines.append("    let rootContainer = try decoder.container(keyedBy: DynamicKey.self)")
+
+        // 生成巢狀 container 鏈
+        for (level, key) in keyPath.dropLast().enumerated() {
+            let containerName = "container\(level + 1)"
+            let prevContainer = level == 0 ? "rootContainer" : "container\(level)"
+            lines.append("    let \(containerName) = try \(prevContainer).nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey(stringValue: \"\(key)\"))")
+        }
+
+        // 解碼每個屬性
+        for property in group {
+            guard let path = property.keyPath, let lastKey = path.last else { continue }
+            let containerName = path.count > 1 ? "container\(path.count - 1)" : "rootContainer"
+
+            if property.isOptional {
+                let optionalType = property.type.replacingOccurrences(of: "?", with: "")
+                if let defaultValue = property.defaultValue {
+                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+                } else {
+                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                }
+            } else {
+                lines.append("    self.\(property.name) = try \(containerName).decode(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+            }
+        }
+
+        lines.append("}")
+
+        return lines.joined(separator: "\n        ")
+    }
+
     /// 生成 class 的 required init(from decoder:) 初始化方法
     static func generateInitFromDecoderForClass(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
-        codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
 
-        for property in properties {
+        let (simpleProperties, nestedGroups) = groupProperties(properties)
+
+        // 如果有簡單屬性，需要 container
+        if !simpleProperties.isEmpty {
+            codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
+        }
+
+        // 處理簡單屬性
+        for property in simpleProperties {
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
                 if let defaultValue = property.defaultValue {
-                    // 有預設值：使用 ?? defaultValue
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name)) ?? \(defaultValue)")
                 } else {
-                    // 無預設值：原邏輯
                     codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
                 }
             } else {
                 codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
             }
+        }
+
+        // 處理巢狀路徑屬性
+        for group in nestedGroups {
+            let nestedCode = generateNestedDecoding(group: group)
+            codeLines.append(nestedCode)
         }
 
         let bodyCode = codeLines.joined(separator: "\n        ")
@@ -315,14 +438,27 @@ extension CodableMacro {
     static func generateEncodeMethod(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
-        codeLines.append("var container = encoder.container(keyedBy: CodingKeys.self)")
 
-        for property in properties {
+        let (simpleProperties, nestedGroups) = groupProperties(properties)
+
+        // 如果有簡單屬性，需要 container
+        if !simpleProperties.isEmpty {
+            codeLines.append("var container = encoder.container(keyedBy: CodingKeys.self)")
+        }
+
+        // 處理簡單屬性
+        for property in simpleProperties {
             if property.isOptional {
                 codeLines.append("try container.encodeIfPresent(\(property.name), forKey: .\(property.name))")
             } else {
                 codeLines.append("try container.encode(\(property.name), forKey: .\(property.name))")
             }
+        }
+
+        // 處理巢狀路徑屬性
+        for group in nestedGroups {
+            let nestedCode = generateNestedEncoding(group: group)
+            codeLines.append(nestedCode)
         }
 
         let bodyCode = codeLines.joined(separator: "\n        ")
@@ -333,6 +469,46 @@ extension CodableMacro {
         """
 
         return DeclSyntax(stringLiteral: encodeMethodCode)
+    }
+
+    /// 生成巢狀路徑的編碼邏輯
+    static func generateNestedEncoding(group: [Property]) -> String {
+        guard let firstProperty = group.first, let keyPath = firstProperty.keyPath else {
+            return ""
+        }
+
+        var lines: [String] = []
+        lines.append("do {")
+        lines.append("    struct DynamicKey: CodingKey {")
+        lines.append("        var stringValue: String")
+        lines.append("        var intValue: Int? { nil }")
+        lines.append("        init(stringValue: String) { self.stringValue = stringValue }")
+        lines.append("        init?(intValue: Int) { nil }")
+        lines.append("    }")
+        lines.append("    var rootContainer = encoder.container(keyedBy: DynamicKey.self)")
+
+        // 生成巢狀 container 鏈
+        for (level, key) in keyPath.dropLast().enumerated() {
+            let containerName = "container\(level + 1)"
+            let prevContainer = level == 0 ? "rootContainer" : "container\(level)"
+            lines.append("    var \(containerName) = \(prevContainer).nestedContainer(keyedBy: DynamicKey.self, forKey: DynamicKey(stringValue: \"\(key)\"))")
+        }
+
+        // 編碼每個屬性
+        for property in group {
+            guard let path = property.keyPath, let lastKey = path.last else { continue }
+            let containerName = path.count > 1 ? "container\(path.count - 1)" : "rootContainer"
+
+            if property.isOptional {
+                lines.append("    try \(containerName).encodeIfPresent(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+            } else {
+                lines.append("    try \(containerName).encode(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+            }
+        }
+
+        lines.append("}")
+
+        return lines.joined(separator: "\n        ")
     }
 
     /// 生成 fromDict(_:) 靜態方法

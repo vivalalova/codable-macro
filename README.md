@@ -10,6 +10,7 @@
 - ✅ 自動產生字典轉換方法（`fromDict`、`toDict` 等）
 - ✅ 自動添加 Codable 協定符合
 - ✅ **支援 @CodingKey 自訂 JSON key 映射**
+- ✅ **支援 @CodingKey 巢狀路徑映射（如 `user.profile.name`）**
 - ✅ **支援 @CodingIgnored 忽略特定屬性**
 - ✅ **支援 Public 可見性（自動產生 public 修飾詞）**
 - ✅ **支援 Optional 屬性預設值**
@@ -117,6 +118,42 @@ JSON 範例：
   "timestamp": "2024-01-01T00:00:00Z"
 }
 ```
+
+### 巢狀路徑映射
+
+`@CodingKey` 支援使用點號（`.`）表示巢狀 JSON 路徑，將深層巢狀的資料直接映射到單一屬性：
+
+```swift
+@Codable
+struct UserInfo {
+    @CodingKey("user.profile.name")
+    let userName: String
+
+    @CodingKey("user.profile.age")
+    let userAge: Int
+
+    let id: String  // 簡單屬性可混合使用
+}
+```
+
+對應的 JSON：
+```json
+{
+    "id": "123",
+    "user": {
+        "profile": {
+            "name": "Alice",
+            "age": 30
+        }
+    }
+}
+```
+
+**注意事項：**
+- 支援任意深度的巢狀路徑（例如：`a.b.c.d.e`）
+- 可以與簡單屬性混合使用
+- 多個屬性可以共享路徑前綴（例如：`user.name` 和 `user.age`）
+- Optional 屬性支援預設值（需使用 `var` 而非 `let`）
 
 ### 忽略特定屬性
 
