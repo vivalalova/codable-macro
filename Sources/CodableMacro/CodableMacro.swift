@@ -46,6 +46,7 @@ public enum DictConversionError: Error, CustomStringConvertible {
 /// ```
 @attached(member, names:
     named(CodingKeys),
+    named(init),
     named(init(from:)),
     named(encode(to:)),
     named(fromDict(_:)),
