@@ -53,7 +53,10 @@ swift run --package-path . Examples.swift --demo
 ### 關鍵設計決策
 
 - **支援 struct、class 和 enum**：actor 和 protocol 會拋出錯誤
-- **@CodingKey 自訂映射**：使用 `@CodingKey("custom_key")` 屬性 macro 自訂 JSON key 映射
+- **@CodingKey 自訂映射和轉換**：
+  - 使用 `@CodingKey("custom_key")` 自訂 JSON key 映射
+  - 使用 `@CodingKey(transform: .url)` 自訂型別轉換（透過 `CodingTransformer` 靜態屬性）
+  - 可同時使用：`@CodingKey("workspace", transform: .url)`
 - **Enum 類型分類**：
   - Simple enum：無 raw value、無 associated values，使用 `singleValueContainer` 編碼為字串
   - Associated values enum：使用 `nestedContainer` 處理複雜結構
@@ -63,6 +66,7 @@ swift run --package-path . Examples.swift --demo
 - **程式碼生成方式**：使用字串模板而非 SwiftSyntaxBuilder DSL，提高可讀性
 - **無標籤參數處理**：Associated values enum 的無標籤參數使用 `_0`, `_1`, `_2` 命名
 - **字典轉換功能**：利用 JSONSerialization 作為橋接，重用現有 Codable 實作
+- **型別轉換器**：使用 `CodingTransform` protocol 定義雙向轉換邏輯，支援內建和自訂轉換器
 
 ## 測試策略
 
@@ -118,4 +122,71 @@ struct APIRequest {
 //     case userId = "user_id"
 //     case timestamp
 // }
+```
+
+### 型別轉換支援
+
+使用 `@CodingKey(transform:)` 可以自訂型別在 JSON 和 Swift 之間的轉換：
+
+```swift
+@Codable
+struct AgentMessage {
+    @CodingKey("workspace", transform: .url)
+    let workspace: URL  // JSON 中為 String
+
+    @CodingKey("session_id", transform: .uuid)
+    let sessionId: UUID  // JSON 中為 String
+
+    @CodingKey(transform: .timestampDate)
+    let createdAt: Date  // JSON 中為 Double (timestamp)
+
+    let content: String  // 不需要轉換
+}
+```
+
+#### 內建轉換器
+
+透過 `CodingTransformer` 提供型別安全的 API，內建以下轉換器：
+
+1. **`.url`**：`URL ↔ String`
+2. **`.uuid`**：`UUID ↔ String`
+3. **`.iso8601Date`**：`Date ↔ String`（ISO8601 格式）
+4. **`.timestampDate`**：`Date ↔ Double`（Unix timestamp）
+5. **`.boolInt`**：`Bool ↔ Int`（0/1 轉換）
+
+#### 自訂轉換器
+
+實作 `CodingTransform` protocol 並擴展 `CodingTransformer`：
+
+```swift
+import CodableMacro
+
+// 1. 實作轉換器
+struct ColorHexTransform: CodingTransform {
+    typealias SwiftType = UIColor
+    typealias JSONType = String
+
+    func encode(_ value: UIColor) throws -> String {
+        return value.toHexString()
+    }
+
+    func decode(_ value: String) throws -> UIColor {
+        guard let color = UIColor(hexString: value) else {
+            throw TransformError.invalidValue
+        }
+        return color
+    }
+}
+
+// 2. 擴展 CodingTransformer
+extension CodingTransformer {
+    public static let colorHex = CodingTransformer("ColorHexTransform")
+}
+
+// 3. 使用
+@Codable
+struct Theme {
+    @CodingKey("primary_color", transform: .colorHex)
+    let primaryColor: UIColor
+}
 ```

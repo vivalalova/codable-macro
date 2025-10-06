@@ -64,7 +64,7 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         var members: [DeclSyntax] = []
 
         // 只有當有簡單屬性時才生成 CodingKeys
-        let (simpleProperties, _) = groupProperties(properties)
+        let (simpleProperties, _, _) = categorizeProperties(properties)
         if !simpleProperties.isEmpty {
             members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
         }
@@ -88,7 +88,7 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
         var members: [DeclSyntax] = []
 
         // 只有當有簡單屬性時才生成 CodingKeys
-        let (simpleProperties, _) = groupProperties(properties)
+        let (simpleProperties, _, _) = categorizeProperties(properties)
         if !simpleProperties.isEmpty {
             members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
         }
@@ -144,6 +144,19 @@ struct Property {
     let keyPath: [String]?  // 新增：巢狀路徑陣列，例如 ["user", "profile", "name"]
     let isIgnored: Bool
     let defaultValue: String?
+    let transform: TransformInfo?  // 新增：型別轉換資訊
+}
+
+/// 轉換器資訊
+struct TransformInfo {
+    /// 轉換器型別名稱（例如 "URLTransform"）
+    let transformerType: String
+
+    /// JSON 型別（例如 "String"）
+    let jsonType: String
+
+    /// Swift 型別（例如 "URL"）
+    let swiftType: String
 }
 
 extension CodableMacro {
@@ -180,6 +193,7 @@ extension CodableMacro {
                 // 解析 @CodingKey 和 @CodingIgnored attributes
                 var customKey: String? = nil
                 var isIgnored = false
+                var transform: TransformInfo? = nil
 
                 for attribute in variableDecl.attributes {
                     guard let attributeSyntax = attribute.as(AttributeSyntax.self),
@@ -190,14 +204,47 @@ extension CodableMacro {
                     let attributeName = identifierType.name.text
 
                     if attributeName == "CodingKey" {
-                        // 提取字串參數
+                        // 解析 @CodingKey 參數
                         if let arguments = attributeSyntax.arguments,
-                           let labeledExprList = arguments.as(LabeledExprListSyntax.self),
-                           let firstArg = labeledExprList.first,
-                           let stringLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
-                           let segment = stringLiteral.segments.first,
-                           let stringSegment = segment.as(StringSegmentSyntax.self) {
-                            customKey = stringSegment.content.text
+                           let labeledExprList = arguments.as(LabeledExprListSyntax.self) {
+
+                            for argument in labeledExprList {
+                                // 提取 key 參數（無標籤的第一個參數）
+                                if argument.label == nil,
+                                   let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self),
+                                   let segment = stringLiteral.segments.first,
+                                   let stringSegment = segment.as(StringSegmentSyntax.self) {
+                                    customKey = stringSegment.content.text
+                                }
+
+                                // 提取 transform 參數
+                                if argument.label?.text == "transform" {
+                                    // 方案 1: Member access 語法（如 .url 或 CodingTransformer.url）
+                                    if let memberAccess = argument.expression.as(MemberAccessExprSyntax.self) {
+                                        // 提取成員名稱，如 "url"
+                                        let memberName = memberAccess.declName.baseName.text
+                                        // 需要從 CodingTransformer 的定義查找對應的類型名稱
+                                        // 使用內建映射表
+                                        let transformType = transformerNameToType(memberName)
+                                        transform = extractTransformInfo(
+                                            transformType: transformType,
+                                            propertyType: typeDescription
+                                        )
+                                    }
+                                    // 方案 2: 函數呼叫語法（如 CodingTransformer("CustomTransform")）
+                                    else if let functionCall = argument.expression.as(FunctionCallExprSyntax.self),
+                                            let arguments = functionCall.arguments.first,
+                                            let stringLiteral = arguments.expression.as(StringLiteralExprSyntax.self),
+                                            let segment = stringLiteral.segments.first,
+                                            let stringSegment = segment.as(StringSegmentSyntax.self) {
+                                        let transformType = stringSegment.content.text
+                                        transform = extractTransformInfo(
+                                            transformType: transformType,
+                                            propertyType: typeDescription
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -226,7 +273,8 @@ extension CodableMacro {
                     customKey: customKey,
                     keyPath: keyPath,
                     isIgnored: isIgnored,
-                    defaultValue: defaultValue
+                    defaultValue: defaultValue,
+                    transform: transform
                 )
                 properties.append(property)
             }
@@ -234,6 +282,42 @@ extension CodableMacro {
 
         // 過濾掉被標記為忽略的屬性
         return properties.filter { !$0.isIgnored }
+    }
+
+    /// 將 CodingTransformer 的靜態屬性名稱映射到實際的轉換器類型名稱
+    /// - Parameter memberName: 靜態屬性名稱（如 "url"）
+    /// - Returns: 轉換器類型名稱（如 "URLTransform"）
+    static func transformerNameToType(_ memberName: String) -> String {
+        let mapping: [String: String] = [
+            "url": "URLTransform",
+            "uuid": "UUIDTransform",
+            "iso8601Date": "ISO8601DateTransform",
+            "timestampDate": "TimestampDateTransform",
+            "boolInt": "BoolIntTransform"
+        ]
+        return mapping[memberName] ?? memberName.capitalized + "Transform"
+    }
+
+    /// 提取轉換器資訊
+    /// - Parameters:
+    ///   - transformType: 轉換器類型名稱
+    ///   - propertyType: 屬性的型別字串
+    /// - Returns: 轉換器資訊
+    static func extractTransformInfo(
+        transformType: String,
+        propertyType: String
+    ) -> TransformInfo {
+        // 從轉換器型別名稱推斷 JSON 型別
+        let jsonType = TransformTypeRegistry.jsonType(for: transformType) ?? "String"
+
+        // 移除 Optional 標記獲取 Swift 型別
+        let swiftType = propertyType.replacingOccurrences(of: "?", with: "")
+
+        return TransformInfo(
+            transformerType: transformType,
+            jsonType: jsonType,
+            swiftType: swiftType
+        )
     }
 
     /// 檢查型別是否為 public
@@ -280,6 +364,47 @@ extension CodableMacro {
         }
 
         return (simpleProperties, pathGroups)
+    }
+
+    /// 將屬性分類為簡單、巢狀和需要轉換的屬性
+    /// - Returns: (簡單屬性, 巢狀路徑屬性組, 需要 transform 的屬性)
+    static func categorizeProperties(_ properties: [Property]) -> ([Property], [[Property]], [Property]) {
+        let simpleProperties = properties.filter {
+            $0.keyPath == nil && $0.transform == nil
+        }
+        let transformProperties = properties.filter {
+            $0.keyPath == nil && $0.transform != nil
+        }
+        let nestedProperties = properties.filter {
+            $0.keyPath != nil
+        }
+
+        // 巢狀屬性分組邏輯（重用現有邏輯）
+        var pathGroups: [[Property]] = []
+        var processedIndices: Set<Int> = []
+
+        for (index, property) in nestedProperties.enumerated() {
+            if processedIndices.contains(index) { continue }
+
+            var group = [property]
+            processedIndices.insert(index)
+
+            for (otherIndex, otherProperty) in nestedProperties.enumerated() {
+                if otherIndex == index || processedIndices.contains(otherIndex) { continue }
+
+                if let path1 = property.keyPath, let path2 = otherProperty.keyPath {
+                    let minLength = min(path1.count, path2.count) - 1
+                    if minLength > 0 && path1.prefix(minLength) == path2.prefix(minLength) {
+                        group.append(otherProperty)
+                        processedIndices.insert(otherIndex)
+                    }
+                }
+            }
+
+            pathGroups.append(group)
+        }
+
+        return (simpleProperties, pathGroups, transformProperties)
     }
 }
 
@@ -349,8 +474,8 @@ extension CodableMacro {
     /// 生成 CodingKeys enum
     static func generateCodingKeys(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
-        // 過濾掉有巢狀路徑的屬性，它們不會出現在 CodingKeys 中
-        let simpleProperties = properties.filter { $0.keyPath == nil }
+        // 過濾掉有巢狀路徑或 transform 的屬性，它們不會出現在 CodingKeys 中
+        let simpleProperties = properties.filter { $0.keyPath == nil && $0.transform == nil }
         let cases = simpleProperties.map { property in
             if let customKey = property.customKey {
                 return "case \(property.name) = \"\(customKey)\""
@@ -372,7 +497,7 @@ extension CodableMacro {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
 
-        let (simpleProperties, nestedGroups) = groupProperties(properties)
+        let (simpleProperties, nestedGroups, transformProperties) = categorizeProperties(properties)
 
         // 如果有簡單屬性，需要 container
         if !simpleProperties.isEmpty {
@@ -401,6 +526,12 @@ extension CodableMacro {
                     codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
                 }
             }
+        }
+
+        // 處理有 transform 的屬性
+        for property in transformProperties {
+            let decodeCode = generateTransformDecoding(property: property)
+            codeLines.append(decodeCode)
         }
 
         // 處理巢狀路徑屬性
@@ -475,12 +606,69 @@ extension CodableMacro {
         return lines.joined(separator: "\n        ")
     }
 
+    /// 生成 transform 屬性的解碼邏輯
+    static func generateTransformDecoding(property: Property) -> String {
+        guard let transform = property.transform else { return "" }
+
+        let keyName = property.customKey ?? property.name
+        let jsonType = transform.jsonType
+        let transformerType = transform.transformerType
+
+        // 定義臨時 CodingKey
+        let keyStructCode = """
+        do {
+            struct TransformKey: CodingKey {
+                var stringValue: String
+                var intValue: Int? { nil }
+                init(stringValue: String) { self.stringValue = stringValue }
+                init?(intValue: Int) { nil }
+            }
+            let transformContainer = try decoder.container(keyedBy: TransformKey.self)
+            let transformer = \(transformerType)()
+        """
+
+        if property.isOptional {
+            // Optional 型別：jsonValue 可能不存在
+            return """
+            \(keyStructCode)
+                if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
+                    self.\(property.name) = try transformer.decode(jsonValue)
+                } else {
+                    self.\(property.name) = nil
+                }
+            }
+            """
+        } else {
+            // 非 Optional 型別
+            if let defaultValue = property.defaultValue {
+                // 有預設值：jsonValue 不存在時使用預設值
+                return """
+                \(keyStructCode)
+                    if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
+                        self.\(property.name) = try transformer.decode(jsonValue)
+                    } else {
+                        self.\(property.name) = \(defaultValue)
+                    }
+                }
+                """
+            } else {
+                // 無預設值：jsonValue 必須存在
+                return """
+                \(keyStructCode)
+                    let jsonValue = try transformContainer.decode(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)"))
+                    self.\(property.name) = try transformer.decode(jsonValue)
+                }
+                """
+            }
+        }
+    }
+
     /// 生成 class 的 required init(from decoder:) 初始化方法
     static func generateInitFromDecoderForClass(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
 
-        let (simpleProperties, nestedGroups) = groupProperties(properties)
+        let (simpleProperties, nestedGroups, transformProperties) = categorizeProperties(properties)
 
         // 如果有簡單屬性，需要 container
         if !simpleProperties.isEmpty {
@@ -511,6 +699,12 @@ extension CodableMacro {
             }
         }
 
+        // 處理有 transform 的屬性
+        for property in transformProperties {
+            let decodeCode = generateTransformDecoding(property: property)
+            codeLines.append(decodeCode)
+        }
+
         // 處理巢狀路徑屬性
         for group in nestedGroups {
             let nestedCode = generateNestedDecoding(group: group)
@@ -532,7 +726,7 @@ extension CodableMacro {
         let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
 
-        let (simpleProperties, nestedGroups) = groupProperties(properties)
+        let (simpleProperties, nestedGroups, transformProperties) = categorizeProperties(properties)
 
         // 如果有簡單屬性，需要 container
         if !simpleProperties.isEmpty {
@@ -546,6 +740,12 @@ extension CodableMacro {
             } else {
                 codeLines.append("try container.encode(\(property.name), forKey: .\(property.name))")
             }
+        }
+
+        // 處理有 transform 的屬性
+        for property in transformProperties {
+            let encodeCode = generateTransformEncoding(property: property)
+            codeLines.append(encodeCode)
         }
 
         // 處理巢狀路徑屬性
@@ -602,6 +802,46 @@ extension CodableMacro {
         lines.append("}")
 
         return lines.joined(separator: "\n        ")
+    }
+
+    /// 生成 transform 屬性的編碼邏輯
+    static func generateTransformEncoding(property: Property) -> String {
+        guard let transform = property.transform else { return "" }
+
+        let keyName = property.customKey ?? property.name
+        let transformerType = transform.transformerType
+
+        let keyStructCode = """
+        do {
+            struct TransformKey: CodingKey {
+                var stringValue: String
+                var intValue: Int? { nil }
+                init(stringValue: String) { self.stringValue = stringValue }
+                init?(intValue: Int) { nil }
+            }
+            var transformContainer = encoder.container(keyedBy: TransformKey.self)
+            let transformer = \(transformerType)()
+        """
+
+        if property.isOptional {
+            // Optional 型別：值為 nil 時不編碼
+            return """
+            \(keyStructCode)
+                if let value = self.\(property.name) {
+                    let jsonValue = try transformer.encode(value)
+                    try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+                }
+            }
+            """
+        } else {
+            // 非 Optional 型別
+            return """
+            \(keyStructCode)
+                let jsonValue = try transformer.encode(self.\(property.name))
+                try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+            }
+            """
+        }
     }
 
     /// 生成 fromDict(_:) 靜態方法

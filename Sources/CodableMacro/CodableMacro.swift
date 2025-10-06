@@ -57,18 +57,24 @@ public enum DictConversionError: Error, CustomStringConvertible {
 @attached(extension, conformances: Codable)
 public macro Codable() = #externalMacro(module: "CodableMacroMacros", type: "CodableMacro")
 
-/// @CodingKey macro 用於自訂 JSON key 映射
+/// @CodingKey macro 用於自訂 JSON key 映射和型別轉換
 ///
-/// 使用範例：
+/// 基本使用範例：
 /// ```swift
 /// @Codable
 /// struct Message {
 ///     @CodingKey("tool_use_id")
 ///     var toolUseId: String
+///
+///     @CodingKey("workspace", transform: .url)
+///     let workspace: URL
+///
+///     @CodingKey(transform: .uuid)
+///     let sessionId: UUID
 /// }
 /// ```
 @attached(peer)
-public macro CodingKey(_ key: String) = #externalMacro(module: "CodableMacroMacros", type: "CodingKeyMacro")
+public macro CodingKey(_ key: String? = nil, transform: CodingTransformer? = nil) = #externalMacro(module: "CodableMacroMacros", type: "CodingKeyMacro")
 
 /// @CodingIgnored macro 用於標記不參與 Codable 編碼/解碼的屬性
 ///

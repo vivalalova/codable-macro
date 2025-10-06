@@ -12,6 +12,7 @@
 - ✅ 自動添加 Codable 協定符合
 - ✅ **支援 @CodingKey 自訂 JSON key 映射**
 - ✅ **支援 @CodingKey 巢狀路徑映射（如 `user.profile.name`）**
+- ✅ **支援 @CodingKey 型別轉換（URL、UUID、Date 等）**
 - ✅ **支援 @CodingIgnored 忽略特定屬性**
 - ✅ **支援 Public 可見性（自動產生 public 修飾詞）**
 - ✅ **支援屬性預設值（Optional 和非 Optional）**
@@ -173,6 +174,88 @@ struct UserInfo {
 - 可以與簡單屬性混合使用
 - 多個屬性可以共享路徑前綴（例如：`user.name` 和 `user.age`）
 - 屬性支援預設值：`let` 保持預設值無法覆蓋，`var` 可從 JSON 覆蓋
+
+### 型別轉換支援
+
+使用 `@CodingKey(transform:)` 可以自訂型別在 JSON 和 Swift 之間的轉換：
+
+```swift
+@Codable
+struct APIResponse {
+    @CodingKey("endpoint", transform: .url)
+    let endpoint: URL  // JSON 中為 String
+
+    @CodingKey("session_id", transform: .uuid)
+    let sessionId: UUID  // JSON 中為 String
+
+    @CodingKey(transform: .timestampDate)
+    let createdAt: Date  // JSON 中為 Double (timestamp)
+
+    let content: String  // 不需要轉換
+}
+```
+
+對應的 JSON：
+```json
+{
+    "endpoint": "https://api.example.com/v1",
+    "session_id": "550e8400-e29b-41d4-a716-446655440000",
+    "createdAt": 1704067200.0,
+    "content": "Hello"
+}
+```
+
+#### 內建轉換器
+
+透過 `CodingTransformer` 提供型別安全的 API：
+
+- **`.url`**：`URL ↔ String`
+- **`.uuid`**：`UUID ↔ String`
+- **`.iso8601Date`**：`Date ↔ String`（ISO8601 格式）
+- **`.timestampDate`**：`Date ↔ Double`（Unix timestamp）
+- **`.boolInt`**：`Bool ↔ Int`（0/1 轉換）
+
+#### 自訂轉換器
+
+實作 `CodingTransform` protocol 並擴展 `CodingTransformer`：
+
+```swift
+import CodableMacro
+
+// 1. 實作轉換器
+struct ColorHexTransform: CodingTransform {
+    typealias SwiftType = UIColor
+    typealias JSONType = String
+
+    func encode(_ value: UIColor) throws -> String {
+        // 將 UIColor 轉換為 hex 字串
+        return value.toHexString()
+    }
+
+    func decode(_ value: String) throws -> UIColor {
+        // 從 hex 字串解析 UIColor
+        guard let color = UIColor(hexString: value) else {
+            throw TransformError.invalidValue
+        }
+        return color
+    }
+}
+
+// 2. 擴展 CodingTransformer
+extension CodingTransformer {
+    public static let colorHex = CodingTransformer("ColorHexTransform")
+}
+
+// 3. 使用
+@Codable
+struct Theme {
+    @CodingKey("primary_color", transform: .colorHex)
+    let primaryColor: UIColor
+
+    @CodingKey("accent_color", transform: .colorHex)
+    let accentColor: UIColor
+}
+```
 
 ### 忽略特定屬性
 
