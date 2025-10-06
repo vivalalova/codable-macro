@@ -399,6 +399,7 @@ struct Comment {
 - ❌ Enum with raw value 已自動符合 Codable，無需使用 macro
 - ❌ 所有屬性必須有型別標註
 - ❌ 屬性型別必須符合 Codable 協定
+- ⚠️ **Memberwise Initializer**：使用 `@Codable` 後，Swift 不再自動產生 memberwise initializer。需要透過 JSON 解碼或字典轉換（`fromDict`）來建立實例
 
 ## JSON 編碼/解碼範例
 
