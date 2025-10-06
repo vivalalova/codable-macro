@@ -68,3 +68,18 @@ public macro Codable() = #externalMacro(module: "CodableMacroMacros", type: "Cod
 /// ```
 @attached(peer)
 public macro CodingKey(_ key: String) = #externalMacro(module: "CodableMacroMacros", type: "CodingKeyMacro")
+
+/// @CodingIgnored macro 用於標記不參與 Codable 編碼/解碼的屬性
+///
+/// 使用範例：
+/// ```swift
+/// @Codable
+/// struct User {
+///     let id: String
+///
+///     @CodingIgnored
+///     var cachedData: String = ""
+/// }
+/// ```
+@attached(peer)
+public macro CodingIgnored() = #externalMacro(module: "CodableMacroMacros", type: "CodingIgnoredMacro")
