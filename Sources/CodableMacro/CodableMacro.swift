@@ -17,15 +17,27 @@ public enum DictConversionError: Error, CustomStringConvertible {
 }
 
 /// @Codable macro 讓結構自動符合 Codable protocol
-/// 
+///
 /// 此 macro 會自動產生：
 /// - CodingKeys enum
 /// - init(from decoder: Decoder) 初始化方法
 /// - func encode(to encoder: Encoder) 編碼方法
+/// - Dictionary 轉換方法（fromDict, toDict 等）
 ///
-/// 使用範例：
+/// 支援 @CodingKey 自訂 JSON key 映射：
 /// ```swift
-/// @Codable 
+/// @Codable
+/// struct Message {
+///     @CodingKey("tool_use_id")
+///     var toolUseId: String
+///
+///     let content: String  // 使用預設 key
+/// }
+/// ```
+///
+/// 基本使用範例：
+/// ```swift
+/// @Codable
 /// struct Message {
 ///   let id: String
 ///   let content: String
@@ -43,3 +55,16 @@ public enum DictConversionError: Error, CustomStringConvertible {
 )
 @attached(extension, conformances: Codable)
 public macro Codable() = #externalMacro(module: "CodableMacroMacros", type: "CodableMacro")
+
+/// @CodingKey macro 用於自訂 JSON key 映射
+///
+/// 使用範例：
+/// ```swift
+/// @Codable
+/// struct Message {
+///     @CodingKey("tool_use_id")
+///     var toolUseId: String
+/// }
+/// ```
+@attached(peer)
+public macro CodingKey(_ key: String) = #externalMacro(module: "CodableMacroMacros", type: "CodingKeyMacro")

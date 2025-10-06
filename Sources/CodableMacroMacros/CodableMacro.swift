@@ -124,6 +124,7 @@ struct Property {
     let type: String
     let isOptional: Bool
     let isLet: Bool
+    let customKey: String?
 }
 
 extension CodableMacro {
@@ -131,30 +132,50 @@ extension CodableMacro {
     /// 從 declaration 中提取所有屬性
     static func extractProperties(from declaration: some DeclGroupSyntax) throws -> [Property] {
         var properties: [Property] = []
-        
+
         for member in declaration.memberBlock.members {
             if let variableDecl = member.decl.as(VariableDeclSyntax.self) {
                 for binding in variableDecl.bindings {
                     if let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
                        let typeAnnotation = binding.typeAnnotation {
-                        
+
                         let name = pattern.identifier.text
                         let typeDescription = typeAnnotation.type.trimmedDescription
                         let isOptional = typeDescription.hasSuffix("?")
                         let isLet = variableDecl.bindingSpecifier.text == "let"
-                        
+
+                        // 解析 @CodingKey attribute
+                        var customKey: String? = nil
+                        for attribute in variableDecl.attributes {
+                            if let attributeSyntax = attribute.as(AttributeSyntax.self),
+                               let identifierType = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self),
+                               identifierType.name.text == "CodingKey" {
+
+                                // 提取字串參數
+                                if let arguments = attributeSyntax.arguments,
+                                   let labeledExprList = arguments.as(LabeledExprListSyntax.self),
+                                   let firstArg = labeledExprList.first,
+                                   let stringLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
+                                   let segment = stringLiteral.segments.first,
+                                   let stringSegment = segment.as(StringSegmentSyntax.self) {
+                                    customKey = stringSegment.content.text
+                                }
+                            }
+                        }
+
                         let property = Property(
                             name: name,
                             type: typeDescription,
                             isOptional: isOptional,
-                            isLet: isLet
+                            isLet: isLet,
+                            customKey: customKey
                         )
                         properties.append(property)
                     }
                 }
             }
         }
-        
+
         return properties
     }
 }
@@ -165,7 +186,14 @@ extension CodableMacro {
     
     /// 生成 CodingKeys enum
     static func generateCodingKeys(properties: [Property]) throws -> DeclSyntax {
-        let cases = properties.map { "case \($0.name)" }.joined(separator: "\n        ")
+        let cases = properties.map { property in
+            if let customKey = property.customKey {
+                return "case \(property.name) = \"\(customKey)\""
+            } else {
+                return "case \(property.name)"
+            }
+        }.joined(separator: "\n        ")
+
         let enumCode = """
         enum CodingKeys: String, CodingKey {
             \(cases)
