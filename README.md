@@ -5,6 +5,7 @@
 ## 功能特色
 
 - ✅ 自動產生 `CodingKeys` enum
+- ✅ 自動產生 memberwise initializer（支援 Optional 預設值）
 - ✅ 自動產生 `init(from decoder: Decoder)` 初始化方法
 - ✅ 自動產生 `encode(to encoder: Encoder)` 編碼方法
 - ✅ 自動產生字典轉換方法（`fromDict`、`toDict` 等）
@@ -61,22 +62,33 @@ struct Message {
 // 自動產生的程式碼等同於：
 struct Message: Codable {
     let id: String
-    let content: String  
+    let content: String
     let timestamp: Date
-    
+
     enum CodingKeys: String, CodingKey {
         case id
         case content
         case timestamp
     }
-    
+
+    // Memberwise initializer
+    init(
+        id: String,
+        content: String,
+        timestamp: Date
+    ) {
+        self.id = id
+        self.content = content
+        self.timestamp = timestamp
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.content = try container.decode(String.self, forKey: .content)
         self.timestamp = try container.decode(Date.self, forKey: .timestamp)
     }
-    
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -84,6 +96,13 @@ struct Message: Codable {
         try container.encode(timestamp, forKey: .timestamp)
     }
 }
+
+// 使用 memberwise initializer 創建實例
+let message = Message(
+    id: "123",
+    content: "Hello",
+    timestamp: Date()
+)
 ```
 
 ### 自訂 JSON Key 映射
@@ -244,6 +263,11 @@ struct User {
     let age: Int
 }
 
+// Memberwise init 中 Optional 屬性預設為 nil
+let user1 = User(id: "123", age: 30)  // name 和 email 為 nil
+let user2 = User(id: "456", name: "Alice", age: 25)  // email 為 nil
+let user3 = User(id: "789", name: "Bob", email: "bob@example.com", age: 35)
+
 // 自動使用 decodeIfPresent 和 encodeIfPresent 處理 Optional 型別
 ```
 
@@ -399,7 +423,7 @@ struct Comment {
 - ❌ Enum with raw value 已自動符合 Codable，無需使用 macro
 - ❌ 所有屬性必須有型別標註
 - ❌ 屬性型別必須符合 Codable 協定
-- ⚠️ **Memberwise Initializer**：使用 `@Codable` 後，Swift 不再自動產生 memberwise initializer。需要透過 JSON 解碼或字典轉換（`fromDict`）來建立實例
+- ⚠️ **let 屬性預設值**：`let` 屬性如果有預設值，無法從 memberwise initializer 覆蓋（Swift 語言限制）。如需覆蓋預設值，請使用 `var`
 
 ## JSON 編碼/解碼範例
 

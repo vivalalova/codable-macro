@@ -69,6 +69,9 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
             members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
         }
 
+        // 生成 memberwise initializer
+        members.append(try generateMemberwiseInit(properties: properties, isPublic: isPublic))
+
         members.append(try generateInitFromDecoder(properties: properties, isPublic: isPublic))
         members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
         members.append(try generateFromDictMethod(isPublic: isPublic))
@@ -283,7 +286,66 @@ extension CodableMacro {
 // MARK: - 程式碼生成器
 
 extension CodableMacro {
-    
+
+    /// 生成 memberwise initializer
+    static func generateMemberwiseInit(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
+
+        // 過濾掉被忽略的屬性和 let 屬性有預設值的情況
+        let includedProperties = properties.filter { property in
+            // 跳過被忽略的屬性
+            if property.isIgnored {
+                return false
+            }
+            // let 屬性有預設值時，不包含在參數列表中（因為無法覆蓋）
+            if property.isLet && property.defaultValue != nil {
+                return false
+            }
+            return true
+        }
+
+        // 生成參數列表
+        let parameters = includedProperties.map { property -> String in
+            var param = "\(property.name): \(property.type)"
+
+            // Optional 屬性預設值為 nil
+            if property.isOptional {
+                param += " = nil"
+            }
+            // var 屬性如果有預設值，加上預設值（var 可以被覆蓋）
+            else if !property.isLet && property.defaultValue != nil {
+                param += " = \(property.defaultValue!)"
+            }
+
+            return param
+        }.joined(separator: ",\n    ")
+
+        // 生成賦值語句
+        let assignments = includedProperties.map { property -> String in
+            return "self.\(property.name) = \(property.name)"
+        }
+
+        // 加上被忽略的屬性的初始化
+        let ignoredAssignments = properties.filter { $0.isIgnored }.compactMap { property -> String? in
+            if let defaultValue = property.defaultValue {
+                return "self.\(property.name) = \(defaultValue)"
+            }
+            return nil
+        }
+
+        let allAssignments = (assignments + ignoredAssignments).joined(separator: "\n    ")
+
+        let initCode = """
+        \(publicModifier)init(
+            \(parameters)
+        ) {
+            \(allAssignments)
+        }
+        """
+
+        return DeclSyntax(stringLiteral: initCode)
+    }
+
     /// 生成 CodingKeys enum
     static func generateCodingKeys(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""

@@ -51,7 +51,8 @@ public enum DictConversionError: Error, CustomStringConvertible {
     named(fromDict(_:)),
     named(fromDictArray(_:)),
     named(toDict()),
-    named(toDictArray(_:))
+    named(toDictArray(_:)),
+    arbitrary
 )
 @attached(extension, conformances: Codable)
 public macro Codable() = #externalMacro(module: "CodableMacroMacros", type: "CodableMacro")
