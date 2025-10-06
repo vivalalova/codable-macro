@@ -437,9 +437,8 @@ extension CodableMacro {
     static func generateMemberwiseInit(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
         let publicModifier = isPublic ? "public " : ""
 
-        // 過濾掉被忽略的屬性和 let 屬性有預設值的情況
+        // 過濾掉被忽略的屬性
         let includedProperties = properties.filter { property in
-            // 跳過被忽略的屬性
             if property.isIgnored {
                 return false
             }
@@ -458,9 +457,9 @@ extension CodableMacro {
             if property.isOptional {
                 param += " = nil"
             }
-            // var 屬性如果有預設值，加上預設值（var 可以被覆蓋）
-            else if !property.isLet && property.defaultValue != nil {
-                param += " = \(property.defaultValue!)"
+            // var 屬性有預設值的，參數帶上預設值
+            else if !property.isLet, let defaultValue = property.defaultValue {
+                param += " = \(defaultValue)"
             }
 
             return param

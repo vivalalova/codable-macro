@@ -264,3 +264,29 @@ struct SettingsWithMultipleInits {
         self.retries = 3
     }
 }
+import Testing
+import CodableMacro
+
+@Test("Var 屬性預設值可被 memberwise init 覆蓋")
+func testVarDefaultValueCanBeOverridden() throws {
+    // 使用預設值
+    let result1 = ToolResultContent(toolUseId: "123", content: "test")
+    #expect(result1.toolUseId == "123")
+    #expect(result1.content == "test")
+    #expect(result1.isError == false)
+
+    // 覆蓋預設值
+    let result2 = ToolResultContent(toolUseId: "456", content: "error", isError: true)
+    #expect(result2.toolUseId == "456")
+    #expect(result2.content == "error")
+    #expect(result2.isError == true)
+}
+
+@Codable
+struct ToolResultContent: Equatable, Hashable {
+    @CodingKey("tool_use_id")
+    let toolUseId: String
+    let content: String
+    @CodingKey("is_error")
+    var isError: Bool = false
+}
