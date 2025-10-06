@@ -60,36 +60,39 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
 
     static func handleStruct(_ declaration: StructDeclSyntax) throws -> [DeclSyntax] {
         let properties = try extractProperties(from: declaration)
+        let isPublic = isPublicType(declaration)
         var members: [DeclSyntax] = []
 
-        members.append(try generateCodingKeys(properties: properties))
-        members.append(try generateInitFromDecoder(properties: properties))
-        members.append(try generateEncodeMethod(properties: properties))
-        members.append(try generateFromDictMethod())
-        members.append(try generateFromDictArrayMethod())
-        members.append(try generateToDictMethod())
-        members.append(try generateToDictArrayMethod())
+        members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        members.append(try generateInitFromDecoder(properties: properties, isPublic: isPublic))
+        members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
+        members.append(try generateFromDictMethod(isPublic: isPublic))
+        members.append(try generateFromDictArrayMethod(isPublic: isPublic))
+        members.append(try generateToDictMethod(isPublic: isPublic))
+        members.append(try generateToDictArrayMethod(isPublic: isPublic))
 
         return members
     }
 
     static func handleClass(_ declaration: ClassDeclSyntax) throws -> [DeclSyntax] {
         let properties = try extractProperties(from: declaration)
+        let isPublic = isPublicType(declaration)
         var members: [DeclSyntax] = []
 
-        members.append(try generateCodingKeys(properties: properties))
-        members.append(try generateInitFromDecoderForClass(properties: properties))
-        members.append(try generateEncodeMethod(properties: properties))
-        members.append(try generateFromDictMethod())
-        members.append(try generateFromDictArrayMethod())
-        members.append(try generateToDictMethod())
-        members.append(try generateToDictArrayMethod())
+        members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
+        members.append(try generateInitFromDecoderForClass(properties: properties, isPublic: isPublic))
+        members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
+        members.append(try generateFromDictMethod(isPublic: isPublic))
+        members.append(try generateFromDictArrayMethod(isPublic: isPublic))
+        members.append(try generateToDictMethod(isPublic: isPublic))
+        members.append(try generateToDictArrayMethod(isPublic: isPublic))
 
         return members
     }
 
     static func handleEnum(_ declaration: EnumDeclSyntax, in context: some MacroExpansionContext) throws -> [DeclSyntax] {
         let enumType = analyzeEnum(declaration)
+        let isPublic = isPublicType(declaration)
 
         switch enumType {
         case .rawValue:
@@ -100,18 +103,18 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
             context.diagnose(diagnostic)
             return []
         case .simple:
-            var members = try generateSimpleEnumCodable(declaration)
-            members.append(try generateFromDictMethod())
-            members.append(try generateFromDictArrayMethod())
-            members.append(try generateToDictMethod())
-            members.append(try generateToDictArrayMethod())
+            var members = try generateSimpleEnumCodable(declaration, isPublic: isPublic)
+            members.append(try generateFromDictMethod(isPublic: isPublic))
+            members.append(try generateFromDictArrayMethod(isPublic: isPublic))
+            members.append(try generateToDictMethod(isPublic: isPublic))
+            members.append(try generateToDictArrayMethod(isPublic: isPublic))
             return members
         case .associatedValues:
-            var members = try generateAssociatedValuesEnumCodable(declaration)
-            members.append(try generateFromDictMethod())
-            members.append(try generateFromDictArrayMethod())
-            members.append(try generateToDictMethod())
-            members.append(try generateToDictArrayMethod())
+            var members = try generateAssociatedValuesEnumCodable(declaration, isPublic: isPublic)
+            members.append(try generateFromDictMethod(isPublic: isPublic))
+            members.append(try generateFromDictArrayMethod(isPublic: isPublic))
+            members.append(try generateToDictMethod(isPublic: isPublic))
+            members.append(try generateToDictArrayMethod(isPublic: isPublic))
             return members
         }
     }
@@ -125,6 +128,8 @@ struct Property {
     let isOptional: Bool
     let isLet: Bool
     let customKey: String?
+    let isIgnored: Bool
+    let defaultValue: String?
 }
 
 extension CodableMacro {
@@ -134,49 +139,90 @@ extension CodableMacro {
         var properties: [Property] = []
 
         for member in declaration.memberBlock.members {
-            if let variableDecl = member.decl.as(VariableDeclSyntax.self) {
-                for binding in variableDecl.bindings {
-                    if let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
-                       let typeAnnotation = binding.typeAnnotation {
+            guard let variableDecl = member.decl.as(VariableDeclSyntax.self) else {
+                continue
+            }
 
-                        let name = pattern.identifier.text
-                        let typeDescription = typeAnnotation.type.trimmedDescription
-                        let isOptional = typeDescription.hasSuffix("?")
-                        let isLet = variableDecl.bindingSpecifier.text == "let"
+            for binding in variableDecl.bindings {
+                guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else {
+                    continue
+                }
 
-                        // 解析 @CodingKey attribute
-                        var customKey: String? = nil
-                        for attribute in variableDecl.attributes {
-                            if let attributeSyntax = attribute.as(AttributeSyntax.self),
-                               let identifierType = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self),
-                               identifierType.name.text == "CodingKey" {
+                // 檢查是否為 computed property（有 accessor block 但無 initializer）
+                let isComputedProperty = binding.accessorBlock != nil && binding.initializer == nil
+                if isComputedProperty {
+                    continue
+                }
 
-                                // 提取字串參數
-                                if let arguments = attributeSyntax.arguments,
-                                   let labeledExprList = arguments.as(LabeledExprListSyntax.self),
-                                   let firstArg = labeledExprList.first,
-                                   let stringLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
-                                   let segment = stringLiteral.segments.first,
-                                   let stringSegment = segment.as(StringSegmentSyntax.self) {
-                                    customKey = stringSegment.content.text
-                                }
-                            }
+                guard let typeAnnotation = binding.typeAnnotation else {
+                    continue
+                }
+
+                let name = pattern.identifier.text
+                let typeDescription = typeAnnotation.type.trimmedDescription
+                let isOptional = typeDescription.hasSuffix("?")
+                let isLet = variableDecl.bindingSpecifier.text == "let"
+
+                // 解析 @CodingKey 和 @CodingIgnored attributes
+                var customKey: String? = nil
+                var isIgnored = false
+
+                for attribute in variableDecl.attributes {
+                    guard let attributeSyntax = attribute.as(AttributeSyntax.self),
+                          let identifierType = attributeSyntax.attributeName.as(IdentifierTypeSyntax.self) else {
+                        continue
+                    }
+
+                    let attributeName = identifierType.name.text
+
+                    if attributeName == "CodingKey" {
+                        // 提取字串參數
+                        if let arguments = attributeSyntax.arguments,
+                           let labeledExprList = arguments.as(LabeledExprListSyntax.self),
+                           let firstArg = labeledExprList.first,
+                           let stringLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
+                           let segment = stringLiteral.segments.first,
+                           let stringSegment = segment.as(StringSegmentSyntax.self) {
+                            customKey = stringSegment.content.text
                         }
+                    }
 
-                        let property = Property(
-                            name: name,
-                            type: typeDescription,
-                            isOptional: isOptional,
-                            isLet: isLet,
-                            customKey: customKey
-                        )
-                        properties.append(property)
+                    if attributeName == "CodingIgnored" {
+                        isIgnored = true
                     }
                 }
+
+                // 提取預設值
+                var defaultValue: String? = nil
+                if let initializer = binding.initializer {
+                    defaultValue = initializer.value.trimmedDescription
+                }
+
+                let property = Property(
+                    name: name,
+                    type: typeDescription,
+                    isOptional: isOptional,
+                    isLet: isLet,
+                    customKey: customKey,
+                    isIgnored: isIgnored,
+                    defaultValue: defaultValue
+                )
+                properties.append(property)
             }
         }
 
-        return properties
+        // 過濾掉被標記為忽略的屬性
+        return properties.filter { !$0.isIgnored }
+    }
+
+    /// 檢查型別是否為 public
+    static func isPublicType(_ declaration: some DeclGroupSyntax) -> Bool {
+        for modifier in declaration.modifiers {
+            if modifier.name.tokenKind == .keyword(.public) {
+                return true
+            }
+        }
+        return false
     }
 }
 
@@ -185,7 +231,8 @@ extension CodableMacro {
 extension CodableMacro {
     
     /// 生成 CodingKeys enum
-    static func generateCodingKeys(properties: [Property]) throws -> DeclSyntax {
+    static func generateCodingKeys(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         let cases = properties.map { property in
             if let customKey = property.customKey {
                 return "case \(property.name) = \"\(customKey)\""
@@ -195,7 +242,7 @@ extension CodableMacro {
         }.joined(separator: "\n        ")
 
         let enumCode = """
-        enum CodingKeys: String, CodingKey {
+        \(publicModifier)enum CodingKeys: String, CodingKey {
             \(cases)
         }
         """
@@ -203,14 +250,21 @@ extension CodableMacro {
     }
     
     /// 生成 init(from decoder:) 初始化方法
-    static func generateInitFromDecoder(properties: [Property]) throws -> DeclSyntax {
+    static func generateInitFromDecoder(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
         codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
 
         for property in properties {
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
-                codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
+                if let defaultValue = property.defaultValue {
+                    // 有預設值：使用 ?? defaultValue
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name)) ?? \(defaultValue)")
+                } else {
+                    // 無預設值：原邏輯
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
+                }
             } else {
                 codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
             }
@@ -218,7 +272,7 @@ extension CodableMacro {
 
         let bodyCode = codeLines.joined(separator: "\n        ")
         let initMethodCode = """
-        init(from decoder: Decoder) throws {
+        \(publicModifier)init(from decoder: Decoder) throws {
             \(bodyCode)
         }
         """
@@ -227,14 +281,21 @@ extension CodableMacro {
     }
 
     /// 生成 class 的 required init(from decoder:) 初始化方法
-    static func generateInitFromDecoderForClass(properties: [Property]) throws -> DeclSyntax {
+    static func generateInitFromDecoderForClass(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
         codeLines.append("let container = try decoder.container(keyedBy: CodingKeys.self)")
 
         for property in properties {
             if property.isOptional {
                 let optionalType = property.type.replacingOccurrences(of: "?", with: "")
-                codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
+                if let defaultValue = property.defaultValue {
+                    // 有預設值：使用 ?? defaultValue
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name)) ?? \(defaultValue)")
+                } else {
+                    // 無預設值：原邏輯
+                    codeLines.append("self.\(property.name) = try container.decodeIfPresent(\(optionalType).self, forKey: .\(property.name))")
+                }
             } else {
                 codeLines.append("self.\(property.name) = try container.decode(\(property.type).self, forKey: .\(property.name))")
             }
@@ -242,7 +303,7 @@ extension CodableMacro {
 
         let bodyCode = codeLines.joined(separator: "\n        ")
         let initMethodCode = """
-        required init(from decoder: Decoder) throws {
+        \(publicModifier)required init(from decoder: Decoder) throws {
             \(bodyCode)
         }
         """
@@ -251,10 +312,11 @@ extension CodableMacro {
     }
     
     /// 生成 encode(to:) 方法
-    static func generateEncodeMethod(properties: [Property]) throws -> DeclSyntax {
+    static func generateEncodeMethod(properties: [Property], isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         var codeLines: [String] = []
         codeLines.append("var container = encoder.container(keyedBy: CodingKeys.self)")
-        
+
         for property in properties {
             if property.isOptional {
                 codeLines.append("try container.encodeIfPresent(\(property.name), forKey: .\(property.name))")
@@ -262,21 +324,22 @@ extension CodableMacro {
                 codeLines.append("try container.encode(\(property.name), forKey: .\(property.name))")
             }
         }
-        
+
         let bodyCode = codeLines.joined(separator: "\n        ")
         let encodeMethodCode = """
-        func encode(to encoder: Encoder) throws {
+        \(publicModifier)func encode(to encoder: Encoder) throws {
             \(bodyCode)
         }
         """
-        
+
         return DeclSyntax(stringLiteral: encodeMethodCode)
     }
 
     /// 生成 fromDict(_:) 靜態方法
-    static func generateFromDictMethod() throws -> DeclSyntax {
+    static func generateFromDictMethod(isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         let code = """
-        static func fromDict(_ dict: [String: Any]) throws -> Self {
+        \(publicModifier)static func fromDict(_ dict: [String: Any]) throws -> Self {
             let jsonData = try JSONSerialization.data(withJSONObject: dict, options: [])
             let decoder = JSONDecoder()
             return try decoder.decode(Self.self, from: jsonData)
@@ -286,9 +349,10 @@ extension CodableMacro {
     }
 
     /// 生成 fromDictArray(_:) 靜態方法
-    static func generateFromDictArrayMethod() throws -> DeclSyntax {
+    static func generateFromDictArrayMethod(isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         let code = """
-        static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
+        \(publicModifier)static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
             try array.map { dict in
                 try fromDict(dict)
             }
@@ -298,9 +362,10 @@ extension CodableMacro {
     }
 
     /// 生成 toDict() 實例方法
-    static func generateToDictMethod() throws -> DeclSyntax {
+    static func generateToDictMethod(isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         let code = """
-        func toDict() throws -> [String: Any] {
+        \(publicModifier)func toDict() throws -> [String: Any] {
             let encoder = JSONEncoder()
             let jsonData = try encoder.encode(self)
             guard let dict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] else {
@@ -313,9 +378,10 @@ extension CodableMacro {
     }
 
     /// 生成 toDictArray(_:) 靜態方法
-    static func generateToDictArrayMethod() throws -> DeclSyntax {
+    static func generateToDictArrayMethod(isPublic: Bool) throws -> DeclSyntax {
+        let publicModifier = isPublic ? "public " : ""
         let code = """
-        static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
+        \(publicModifier)static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
             try array.map { instance in
                 try instance.toDict()
             }
@@ -430,7 +496,8 @@ extension CodableMacro {
         return cases
     }
 
-    static func generateSimpleEnumCodable(_ declaration: EnumDeclSyntax) throws -> [DeclSyntax] {
+    static func generateSimpleEnumCodable(_ declaration: EnumDeclSyntax, isPublic: Bool) throws -> [DeclSyntax] {
+        let publicModifier = isPublic ? "public " : ""
         let cases = try extractEnumCases(from: declaration)
 
         let decodeSwitchCases = cases.map { caseInfo in
@@ -448,7 +515,7 @@ extension CodableMacro {
         }.joined(separator: "\n")
 
         let initMethod = """
-        init(from decoder: Decoder) throws {
+        \(publicModifier)init(from decoder: Decoder) throws {
             let container = try decoder.singleValueContainer()
             let value = try container.decode(String.self)
 
@@ -466,7 +533,7 @@ extension CodableMacro {
         """
 
         let encodeMethod = """
-        func encode(to encoder: Encoder) throws {
+        \(publicModifier)func encode(to encoder: Encoder) throws {
             var container = encoder.singleValueContainer()
 
             switch self {
@@ -481,13 +548,14 @@ extension CodableMacro {
         ]
     }
 
-    static func generateAssociatedValuesEnumCodable(_ declaration: EnumDeclSyntax) throws -> [DeclSyntax] {
+    static func generateAssociatedValuesEnumCodable(_ declaration: EnumDeclSyntax, isPublic: Bool) throws -> [DeclSyntax] {
+        let publicModifier = isPublic ? "public " : ""
         let cases = try extractEnumCases(from: declaration)
         var members: [DeclSyntax] = []
 
         let mainCodingKeys = cases.map { "case \($0.name)" }.joined(separator: "\n        ")
         let mainCodingKeysEnum = """
-        enum CodingKeys: String, CodingKey {
+        \(publicModifier)enum CodingKeys: String, CodingKey {
             \(mainCodingKeys)
         }
         """
@@ -504,7 +572,7 @@ extension CodableMacro {
             }.joined(separator: "\n            ")
 
             let keysEnum = """
-            enum \(caseName)CodingKeys: String, CodingKey {
+            \(publicModifier)enum \(caseName)CodingKeys: String, CodingKey {
                 \(keys)
             }
             """
@@ -545,7 +613,7 @@ extension CodableMacro {
         }
 
         let initMethod = """
-        init(from decoder: Decoder) throws {
+        \(publicModifier)init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
 
             if container.allKeys.count != 1 {
@@ -594,7 +662,7 @@ extension CodableMacro {
         }
 
         let encodeMethod = """
-        func encode(to encoder: Encoder) throws {
+        \(publicModifier)func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
 
             switch self {
