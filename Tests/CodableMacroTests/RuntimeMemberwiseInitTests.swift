@@ -130,6 +130,59 @@ struct RuntimeMemberwiseInitTests {
         #expect(user1.id == user2.id)
         #expect(user1.name == user2.name)
     }
+
+    @Test("有自訂 init 時使用自訂 init")
+    func testCustomInitUsed() throws {
+        // 使用自訂 init（只接受 id 參數）
+        let product = ProductWithCustomInit(id: "prod-123")
+
+        #expect(product.id == "prod-123")
+        #expect(product.name == "Default Product")  // 自訂 init 設定的預設值
+        #expect(product.price == 0.0)              // 自訂 init 設定的預設值
+
+        // JSON 解碼仍然正常運作
+        let json = """
+        {
+            "id": "prod-456",
+            "name": "Custom Product",
+            "price": 99.99
+        }
+        """
+        let decoder = JSONDecoder()
+        let product2 = try decoder.decode(ProductWithCustomInit.self, from: json.data(using: .utf8)!)
+
+        #expect(product2.id == "prod-456")
+        #expect(product2.name == "Custom Product")
+        #expect(product2.price == 99.99)
+    }
+
+    @Test("有多個自訂 init 時可以選擇使用")
+    func testMultipleCustomInits() throws {
+        // 使用無參數 init
+        let settings1 = SettingsWithMultipleInits()
+
+        #expect(settings1.timeout == 30)
+        #expect(settings1.retries == 3)
+
+        // 使用單參數 init
+        let settings2 = SettingsWithMultipleInits(timeout: 60)
+
+        #expect(settings2.timeout == 60)
+        #expect(settings2.retries == 3)
+
+        // JSON 解碼仍然正常運作
+        let json = """
+        {
+            "timeout": 120,
+            "retries": 5
+        }
+        """
+        let decoder = JSONDecoder()
+        let settings3 = try decoder.decode(SettingsWithMultipleInits.self, from: json.data(using: .utf8)!)
+
+        #expect(settings3.timeout == 120)
+        #expect(settings3.retries == 5)
+    }
 }
 
 // MARK: - 測試用型別
@@ -181,4 +234,33 @@ struct AppConfig {
     let id: String
     let tags: [String] = []
     let labels: [String: String] = [:]
+}
+
+@Codable
+struct ProductWithCustomInit {
+    let id: String
+    let name: String
+    let price: Double
+
+    init(id: String) {
+        self.id = id
+        self.name = "Default Product"
+        self.price = 0.0
+    }
+}
+
+@Codable
+struct SettingsWithMultipleInits {
+    let timeout: Int
+    let retries: Int
+
+    init() {
+        self.timeout = 30
+        self.retries = 3
+    }
+
+    init(timeout: Int) {
+        self.timeout = timeout
+        self.retries = 3
+    }
 }

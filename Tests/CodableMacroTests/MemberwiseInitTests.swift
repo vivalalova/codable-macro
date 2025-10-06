@@ -407,4 +407,168 @@ struct MemberwiseInitTests {
             macros: testMacros
         )
     }
+
+    @Test("有自訂 init 時不產生 memberwise init")
+    func testNoMemberwiseInitWithCustomInit() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct User {
+                let id: String
+                let name: String
+
+                init(id: String) {
+                    self.id = id
+                    self.name = "Default"
+                }
+            }
+            """,
+            expandedSource: """
+            struct User {
+                let id: String
+                let name: String
+
+                init(id: String) {
+                    self.id = id
+                    self.name = "Default"
+                }
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case name
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.id = try container.decode(String.self, forKey: .id)
+                    self.name = try container.decode(String.self, forKey: .name)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(id, forKey: .id)
+                    try container.encode(name, forKey: .name)
+                }
+
+                static func fromDict(_ dict: [String: Any]) throws -> Self {
+                    let jsonData = try JSONSerialization.data(withJSONObject: dict, options: [])
+                    let decoder = JSONDecoder()
+                    return try decoder.decode(Self.self, from: jsonData)
+                }
+
+                static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
+                    try array.map { dict in
+                        try fromDict(dict)
+                    }
+                }
+
+                func toDict() throws -> [String: Any] {
+                    let encoder = JSONEncoder()
+                    let jsonData = try encoder.encode(self)
+                    guard let dict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] else {
+                        throw CodableMacro.DictConversionError.invalidDictionaryStructure
+                    }
+                    return dict
+                }
+
+                static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
+                    try array.map { instance in
+                        try instance.toDict()
+                    }
+                }
+            }
+
+            extension User: Codable {
+            }
+            """,
+            macros: testMacros
+        )
+    }
+
+    @Test("有多個自訂 init 時不產生 memberwise init")
+    func testNoMemberwiseInitWithMultipleCustomInit() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct Config {
+                let timeout: Int
+                let retries: Int
+
+                init() {
+                    self.timeout = 30
+                    self.retries = 3
+                }
+
+                init(timeout: Int) {
+                    self.timeout = timeout
+                    self.retries = 3
+                }
+            }
+            """,
+            expandedSource: """
+            struct Config {
+                let timeout: Int
+                let retries: Int
+
+                init() {
+                    self.timeout = 30
+                    self.retries = 3
+                }
+
+                init(timeout: Int) {
+                    self.timeout = timeout
+                    self.retries = 3
+                }
+
+                enum CodingKeys: String, CodingKey {
+                    case timeout
+                    case retries
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.timeout = try container.decode(Int.self, forKey: .timeout)
+                    self.retries = try container.decode(Int.self, forKey: .retries)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(timeout, forKey: .timeout)
+                    try container.encode(retries, forKey: .retries)
+                }
+
+                static func fromDict(_ dict: [String: Any]) throws -> Self {
+                    let jsonData = try JSONSerialization.data(withJSONObject: dict, options: [])
+                    let decoder = JSONDecoder()
+                    return try decoder.decode(Self.self, from: jsonData)
+                }
+
+                static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
+                    try array.map { dict in
+                        try fromDict(dict)
+                    }
+                }
+
+                func toDict() throws -> [String: Any] {
+                    let encoder = JSONEncoder()
+                    let jsonData = try encoder.encode(self)
+                    guard let dict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] else {
+                        throw CodableMacro.DictConversionError.invalidDictionaryStructure
+                    }
+                    return dict
+                }
+
+                static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
+                    try array.map { instance in
+                        try instance.toDict()
+                    }
+                }
+            }
+
+            extension Config: Codable {
+            }
+            """,
+            macros: testMacros
+        )
+    }
 }

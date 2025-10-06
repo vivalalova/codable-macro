@@ -61,6 +61,7 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
     static func handleStruct(_ declaration: StructDeclSyntax) throws -> [DeclSyntax] {
         let properties = try extractProperties(from: declaration)
         let isPublic = isPublicType(declaration)
+        let hasCustomInit = hasExistingInit(in: declaration)
         var members: [DeclSyntax] = []
 
         // 只有當有簡單屬性時才生成 CodingKeys
@@ -69,8 +70,10 @@ public struct CodableMacro: MemberMacro, ExtensionMacro {
             members.append(try generateCodingKeys(properties: properties, isPublic: isPublic))
         }
 
-        // 生成 memberwise initializer
-        members.append(try generateMemberwiseInit(properties: properties, isPublic: isPublic))
+        // 只在沒有自訂 init 時才生成 memberwise initializer
+        if !hasCustomInit {
+            members.append(try generateMemberwiseInit(properties: properties, isPublic: isPublic))
+        }
 
         members.append(try generateInitFromDecoder(properties: properties, isPublic: isPublic))
         members.append(try generateEncodeMethod(properties: properties, isPublic: isPublic))
@@ -325,6 +328,24 @@ extension CodableMacro {
         for modifier in declaration.modifiers {
             if modifier.name.tokenKind == .keyword(.public) {
                 return true
+            }
+        }
+        return false
+    }
+
+    /// 檢查型別中是否已存在自訂 init
+    static func hasExistingInit(in declaration: some DeclGroupSyntax) -> Bool {
+        for member in declaration.memberBlock.members {
+            if let initDecl = member.decl.as(InitializerDeclSyntax.self) {
+                // 檢查是否為 init(from decoder:) - 這個由 macro 產生，不算自訂 init
+                let parameters = initDecl.signature.parameterClause.parameters
+                let isDecoderInit = parameters.count == 1 &&
+                    parameters.first?.secondName?.text == "decoder"
+
+                // 如果不是 decoder init，就是自訂 init
+                if !isDecoderInit {
+                    return true
+                }
             }
         }
         return false
