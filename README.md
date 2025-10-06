@@ -10,7 +10,11 @@
 - ✅ 自動產生字典轉換方法（`fromDict`、`toDict` 等）
 - ✅ 自動添加 Codable 協定符合
 - ✅ **支援 @CodingKey 自訂 JSON key 映射**
-- ✅ 支援基本型別 (String, Int, Double, Bool, Date 等)
+- ✅ **支援 @CodingIgnored 忽略特定屬性**
+- ✅ **支援 Public 可見性（自動產生 public 修飾詞）**
+- ✅ **支援 Optional 屬性預設值**
+- ✅ 支援基本型別 (String, Int, Double, Bool 等)
+- ✅ 支援 Foundation 型別 (Date, UUID, URL, Data, Decimal 等)
 - ✅ 支援 Optional 型別 (`String?`, `Int?` 等)
 - ✅ 支援 Collection 型別 (`[String]`, `[String: String]` 等)
 - ✅ 支援巢狀 Codable 型別
@@ -112,6 +116,59 @@ JSON 範例：
   "user_id": "user_456",
   "timestamp": "2024-01-01T00:00:00Z"
 }
+```
+
+### 忽略特定屬性
+
+使用 `@CodingIgnored` 標記不參與編碼/解碼的屬性：
+
+```swift
+@Codable
+struct User {
+    let id: String
+    let name: String
+
+    @CodingIgnored
+    var cachedData: String = ""  // 不會被編碼/解碼
+
+    // Computed properties 自動被忽略
+    var displayName: String {
+        "User: \(name)"
+    }
+}
+```
+
+### Public 可見性支援
+
+`@Codable` 自動偵測型別的 `public` 修飾詞，並產生對應的 public 實作：
+
+```swift
+@Codable
+public struct APIResponse {
+    public let status: String
+    public let data: String
+}
+
+// 生成的 init(from:) 和 encode(to:) 都會是 public
+```
+
+### Optional 屬性預設值
+
+Optional 屬性可以宣告預設值，當 JSON 缺少該欄位時自動使用預設值：
+
+```swift
+@Codable
+struct Config {
+    let timeout: Int? = 30
+    let retries: Int? = 3
+    let items: [String]? = []
+}
+
+// JSON: {}
+// 解碼結果: Config(timeout: 30, retries: 3, items: [])
+
+// JSON: {"timeout": 60}
+// 解碼結果: Config(timeout: 60, retries: 3, items: [])
 ```
 
 ### Optional 型別支援
@@ -261,13 +318,18 @@ struct Comment {
 
 ## 支援的型別
 
+### 宣告型別
 - ✅ `struct`
 - ✅ `class`（自動產生 `required init`）
 - ✅ `enum`（Simple enum、Associated values enum）
-- ✅ `let` 和 `var` 屬性
+
+### 屬性型別
+- ✅ 基本型別：String, Int, Double, Float, Bool 等
+- ✅ Foundation 型別：Date, UUID, URL, Data, Decimal 等所有符合 Codable 的型別
 - ✅ Optional 型別（自動使用 `decodeIfPresent`/`encodeIfPresent`）
-- ✅ Collection 型別（Array、Dictionary 等）
+- ✅ Collection 型別（Array、Dictionary、Set 等）
 - ✅ 巢狀 Codable 型別
+- ✅ `let` 和 `var` 屬性
 
 ## 限制
 
