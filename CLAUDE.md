@@ -33,10 +33,11 @@ swift run --package-path . Examples.swift --demo
 2. **CodableMacroMacros (Sources/CodableMacroMacros/)**
    - Macro 實作層，包含實際的程式碼生成邏輯
    - `CodableMacro.swift`: 實作 `MemberMacro` 和 `ExtensionMacro` 協定
+   - `CodingKeyMacro.swift`: 實作 `PeerMacro` 協定，用於 @CodingKey 屬性標記
    - `CodableMacroPlugin.swift`: Compiler plugin 進入點
    - 核心邏輯：
-     - `extractProperties()`: 從語法樹提取屬性資訊（名稱、型別、是否 Optional）
-     - `generateCodingKeys()`: 產生 CodingKeys enum
+     - `extractProperties()`: 從語法樹提取屬性資訊（名稱、型別、是否 Optional、自訂 key）
+     - `generateCodingKeys()`: 產生 CodingKeys enum，支援自訂 key 映射
      - `generateInitFromDecoder()`: 產生 `init(from:)` 方法，Optional 屬性使用 `decodeIfPresent`
      - `generateEncodeMethod()`: 產生 `encode(to:)` 方法，Optional 屬性使用 `encodeIfPresent`
      - `generateFromDictMethod()`: 產生 `fromDict(_:)` 靜態方法，從字典轉換為實例
@@ -52,12 +53,13 @@ swift run --package-path . Examples.swift --demo
 ### 關鍵設計決策
 
 - **支援 struct、class 和 enum**：actor 和 protocol 會拋出錯誤
+- **@CodingKey 自訂映射**：使用 `@CodingKey("custom_key")` 屬性 macro 自訂 JSON key 映射
 - **Enum 類型分類**：
   - Simple enum：無 raw value、無 associated values，使用 `singleValueContainer` 編碼為字串
   - Associated values enum：使用 `nestedContainer` 處理複雜結構
   - Raw value enum：偵測後產生 warning，不產生程式碼（已自動符合 Codable）
 - **自動判斷 Optional**：透過型別字串結尾是否為 `?` 判斷，自動選用 `decodeIfPresent`/`encodeIfPresent`
-- **屬性資訊提取**：使用 SwiftSyntax 的 `VariableDeclSyntax` 和 `IdentifierPatternSyntax` 解析
+- **屬性資訊提取**：使用 SwiftSyntax 的 `VariableDeclSyntax` 和 `IdentifierPatternSyntax` 解析，並檢查 @CodingKey attribute
 - **程式碼生成方式**：使用字串模板而非 SwiftSyntaxBuilder DSL，提高可讀性
 - **無標籤參數處理**：Associated values enum 的無標籤參數使用 `_0`, `_1`, `_2` 命名
 - **字典轉換功能**：利用 JSONSerialization 作為橋接，重用現有 Codable 實作
@@ -82,12 +84,38 @@ swift run --package-path . Examples.swift --demo
 6. **邊界案例測試**：空 struct、單一屬性、單一 case enum
 7. **錯誤案例測試**：actor、protocol
 8. **Dictionary 轉換測試**：Struct、Class、Enum 的字典轉換功能
+9. **CodingKey 映射測試**：自訂 key 映射、混合預設與自訂 key
 
 ## 專案限制
 
 - 只支援有型別標註的屬性（無法推斷型別）
-- 不支援自訂 CodingKeys 映射
-- 不支援排除特定屬性
+- 不支援排除特定屬性（所有屬性都會被編碼）
 - class 的 `init(from:)` 會自動加上 `required` 關鍵字
 - Enum with raw value 無需使用 macro（Swift 已自動符合 Codable）
 - Enum with associated values 的參數型別必須符合 Codable
+
+## 功能特色
+
+### @CodingKey 自訂 JSON Key 映射
+
+使用 `@CodingKey` 屬性 macro 可以自訂屬性與 JSON key 的映射：
+
+```swift
+@Codable
+struct APIRequest {
+    @CodingKey("api_key")
+    let apiKey: String
+
+    @CodingKey("user_id")
+    let userId: String
+
+    let timestamp: Date  // 使用預設 key
+}
+
+// 產生的 CodingKeys：
+// enum CodingKeys: String, CodingKey {
+//     case apiKey = "api_key"
+//     case userId = "user_id"
+//     case timestamp
+// }
+```

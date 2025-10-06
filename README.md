@@ -9,6 +9,7 @@
 - ✅ 自動產生 `encode(to encoder: Encoder)` 編碼方法
 - ✅ 自動產生字典轉換方法（`fromDict`、`toDict` 等）
 - ✅ 自動添加 Codable 協定符合
+- ✅ **支援 @CodingKey 自訂 JSON key 映射**
 - ✅ 支援基本型別 (String, Int, Double, Bool, Date 等)
 - ✅ 支援 Optional 型別 (`String?`, `Int?` 等)
 - ✅ 支援 Collection 型別 (`[String]`, `[String: String]` 等)
@@ -23,7 +24,7 @@
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/codable-macro.git", from: "1.0.0")
+    .package(url: "https://github.com/vivalalova/codable-macro.git", from: "0.2.0")
 ]
 ```
 
@@ -80,6 +81,39 @@ struct Message: Codable {
 }
 ```
 
+### 自訂 JSON Key 映射
+
+使用 `@CodingKey` 可以自訂屬性與 JSON key 的映射關係：
+
+```swift
+@Codable
+struct APIRequest {
+    @CodingKey("api_key")
+    let apiKey: String
+
+    @CodingKey("user_id")
+    let userId: String
+
+    let timestamp: Date  // 使用預設 key
+}
+
+// 自動產生的 CodingKeys：
+// enum CodingKeys: String, CodingKey {
+//     case apiKey = "api_key"
+//     case userId = "user_id"
+//     case timestamp
+// }
+```
+
+JSON 範例：
+```json
+{
+  "api_key": "abc123",
+  "user_id": "user_456",
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
 ### Optional 型別支援
 
 ```swift
@@ -87,7 +121,7 @@ struct Message: Codable {
 struct User {
     let id: String
     let name: String?      // Optional 屬性
-    let email: String?     // Optional 屬性  
+    let email: String?     // Optional 屬性
     let age: Int
 }
 
