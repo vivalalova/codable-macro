@@ -571,4 +571,102 @@ struct MemberwiseInitTests {
             macros: testMacros
         )
     }
+
+    @Test("靜態方法和計算屬性不影響 memberwise init 生成")
+    func testStaticMethodAndComputedPropertyDoNotBlockMemberwiseInit() throws {
+        assertMacroExpansion(
+            """
+            @Codable
+            struct CommandContent {
+                let name: String
+                let message: String
+                let args: String?
+
+                static func parse(from text: String) -> CommandContent? {
+                    return nil
+                }
+
+                var commandLine: String {
+                    return name
+                }
+            }
+            """,
+            expandedSource: """
+            struct CommandContent {
+                let name: String
+                let message: String
+                let args: String?
+
+                static func parse(from text: String) -> CommandContent? {
+                    return nil
+                }
+
+                var commandLine: String {
+                    return name
+                }
+
+                enum CodingKeys: String, CodingKey {
+                    case name
+                    case message
+                    case args
+                }
+
+                init(
+                    name: String,
+                    message: String,
+                    args: String? = nil
+                ) {
+                    self.name = name
+                    self.message = message
+                    self.args = args
+                }
+
+                init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    self.name = try container.decode(String.self, forKey: .name)
+                    self.message = try container.decode(String.self, forKey: .message)
+                    self.args = try container.decodeIfPresent(String.self, forKey: .args)
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    try container.encode(name, forKey: .name)
+                    try container.encode(message, forKey: .message)
+                    try container.encodeIfPresent(args, forKey: .args)
+                }
+
+                static func fromDict(_ dict: [String: Any]) throws -> Self {
+                    let jsonData = try JSONSerialization.data(withJSONObject: dict, options: [])
+                    let decoder = JSONDecoder()
+                    return try decoder.decode(Self.self, from: jsonData)
+                }
+
+                static func fromDictArray(_ array: [[String: Any]]) throws -> [Self] {
+                    try array.map { dict in
+                        try fromDict(dict)
+                    }
+                }
+
+                func toDict() throws -> [String: Any] {
+                    let encoder = JSONEncoder()
+                    let jsonData = try encoder.encode(self)
+                    guard let dict = try JSONSerialization.jsonObject(with: jsonData, options: []) as? [String: Any] else {
+                        throw CodableMacro.DictConversionError.invalidDictionaryStructure
+                    }
+                    return dict
+                }
+
+                static func toDictArray(_ array: [Self]) throws -> [[String: Any]] {
+                    try array.map { instance in
+                        try instance.toDict()
+                    }
+                }
+            }
+
+            extension CommandContent: Codable {
+            }
+            """,
+            macros: testMacros
+        )
+    }
 }
