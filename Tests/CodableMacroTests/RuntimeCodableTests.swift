@@ -381,4 +381,111 @@ struct RuntimeCodableTests {
         #expect(abs(decoded.doubleValue - 3.14159265359) < 0.0000001)
         #expect(abs(decoded.floatValue - 2.718) < 0.001)
     }
+
+    @Test("執行期測試 - Foundation 型別（UUID、URL、Data、Date、Decimal）")
+    func testRuntimeFoundationTypes() throws {
+        struct TestResource: Codable {
+            let id: UUID
+            let url: URL
+            let optionalURL: URL?
+            let binaryData: Data
+            let createdAt: Date
+            let price: Decimal
+            let optionalPrice: Decimal?
+
+            enum CodingKeys: String, CodingKey {
+                case id, url, optionalURL, binaryData, createdAt, price, optionalPrice
+            }
+
+            init(id: UUID, url: URL, optionalURL: URL?, binaryData: Data, createdAt: Date, price: Decimal, optionalPrice: Decimal?) {
+                self.id = id
+                self.url = url
+                self.optionalURL = optionalURL
+                self.binaryData = binaryData
+                self.createdAt = createdAt
+                self.price = price
+                self.optionalPrice = optionalPrice
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(UUID.self, forKey: .id)
+                self.url = try container.decode(URL.self, forKey: .url)
+                self.optionalURL = try container.decodeIfPresent(URL.self, forKey: .optionalURL)
+                self.binaryData = try container.decode(Data.self, forKey: .binaryData)
+                self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+                self.price = try container.decode(Decimal.self, forKey: .price)
+                self.optionalPrice = try container.decodeIfPresent(Decimal.self, forKey: .optionalPrice)
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(id, forKey: .id)
+                try container.encode(url, forKey: .url)
+                try container.encodeIfPresent(optionalURL, forKey: .optionalURL)
+                try container.encode(binaryData, forKey: .binaryData)
+                try container.encode(createdAt, forKey: .createdAt)
+                try container.encode(price, forKey: .price)
+                try container.encodeIfPresent(optionalPrice, forKey: .optionalPrice)
+            }
+        }
+
+        // 建立測試資料
+        let testUUID = UUID()
+        let testURL = URL(string: "https://example.com/api/resource")!
+        let testData = "Hello, World!".data(using: .utf8)!
+        let testDate = Date()
+        let testDecimal = Decimal(string: "123.45")!
+
+        let original = TestResource(
+            id: testUUID,
+            url: testURL,
+            optionalURL: URL(string: "https://example.com/optional"),
+            binaryData: testData,
+            createdAt: testDate,
+            price: testDecimal,
+            optionalPrice: Decimal(string: "99.99")
+        )
+
+        // 測試編碼
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let jsonData = try encoder.encode(original)
+
+        // 測試解碼
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(TestResource.self, from: jsonData)
+
+        // 驗證資料正確性
+        #expect(decoded.id == original.id)
+        #expect(decoded.url == original.url)
+        #expect(decoded.optionalURL == original.optionalURL)
+        #expect(decoded.binaryData == original.binaryData)
+        #expect(abs(decoded.createdAt.timeIntervalSince1970 - original.createdAt.timeIntervalSince1970) < 1.0)
+        #expect(decoded.price == original.price)
+        #expect(decoded.optionalPrice == original.optionalPrice)
+
+        // 驗證 JSON 字符串包含預期的資料
+        let jsonString = String(data: jsonData, encoding: .utf8)!
+        #expect(jsonString.contains("\"id\":\"\(testUUID.uuidString)\""))
+        #expect(jsonString.contains("\"url\":\"https:\\/\\/example.com\\/api\\/resource\""))
+
+        // 測試 Optional 為 nil 的情況
+        let resourceWithNilOptional = TestResource(
+            id: testUUID,
+            url: testURL,
+            optionalURL: nil,
+            binaryData: testData,
+            createdAt: testDate,
+            price: testDecimal,
+            optionalPrice: nil
+        )
+
+        let jsonData2 = try encoder.encode(resourceWithNilOptional)
+        let decoded2 = try decoder.decode(TestResource.self, from: jsonData2)
+
+        #expect(decoded2.optionalURL == nil)
+        #expect(decoded2.optionalPrice == nil)
+    }
 }
