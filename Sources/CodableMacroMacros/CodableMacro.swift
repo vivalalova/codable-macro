@@ -155,11 +155,17 @@ struct TransformInfo {
     /// 轉換器型別名稱（例如 "URLTransform"）
     let transformerType: String
 
-    /// JSON 型別（例如 "String"）
+    /// JSON 型別（例如 "String" 或 "[String]"）
     let jsonType: String
 
-    /// Swift 型別（例如 "URL"）
+    /// Swift 型別（例如 "URL" 或 "[URL]"）
     let swiftType: String
+
+    /// 是否為陣列類型
+    let isArray: Bool
+
+    /// 如果是陣列，元素的 JSON 型別（例如 "String"）
+    let elementJsonType: String?
 }
 
 extension CodableMacro {
@@ -310,17 +316,41 @@ extension CodableMacro {
         transformType: String,
         propertyType: String
     ) -> TransformInfo {
-        // 從轉換器型別名稱推斷 JSON 型別
-        let jsonType = TransformTypeRegistry.jsonType(for: transformType) ?? "String"
+        // 移除 Optional 標記
+        let cleanType = propertyType.replacingOccurrences(of: "?", with: "")
 
-        // 移除 Optional 標記獲取 Swift 型別
-        let swiftType = propertyType.replacingOccurrences(of: "?", with: "")
+        // 檢查是否為陣列類型
+        let isArray = cleanType.hasPrefix("[") && cleanType.hasSuffix("]")
 
-        return TransformInfo(
-            transformerType: transformType,
-            jsonType: jsonType,
-            swiftType: swiftType
-        )
+        if isArray {
+            // 提取陣列元素型別，例如 "[URL]" -> "URL"
+            let elementType = String(cleanType.dropFirst().dropLast())
+
+            // 從轉換器型別名稱推斷元素的 JSON 型別
+            let elementJsonType = TransformTypeRegistry.jsonType(for: transformType) ?? "String"
+
+            // 陣列的 JSON 型別為 [元素JSON型別]
+            let jsonType = "[\(elementJsonType)]"
+
+            return TransformInfo(
+                transformerType: transformType,
+                jsonType: jsonType,
+                swiftType: cleanType,
+                isArray: true,
+                elementJsonType: elementJsonType
+            )
+        } else {
+            // 單一元素的轉換
+            let jsonType = TransformTypeRegistry.jsonType(for: transformType) ?? "String"
+
+            return TransformInfo(
+                transformerType: transformType,
+                jsonType: jsonType,
+                swiftType: cleanType,
+                isArray: false,
+                elementJsonType: nil
+            )
+        }
     }
 
     /// 檢查型別是否為 public
@@ -614,35 +644,69 @@ extension CodableMacro {
             if let transform = property.transform {
                 let transformerType = transform.transformerType
                 let jsonType = transform.jsonType
+                let isArray = transform.isArray
 
                 lines.append("    let transformer = \(transformerType)()")
 
-                if property.isOptional {
-                    // Optional 型別 + Transform
-                    if let defaultValue = property.defaultValue {
-                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
-                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
-                        lines.append("    } else {")
-                        lines.append("        self.\(property.name) = \(defaultValue)")
-                        lines.append("    }")
+                if isArray {
+                    // 陣列類型 + Transform
+                    if property.isOptional {
+                        // Optional 陣列 + Transform
+                        if let defaultValue = property.defaultValue {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try jsonValue.map { try transformer.decode($0) }")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = \(defaultValue)")
+                            lines.append("    }")
+                        } else {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try jsonValue.map { try transformer.decode($0) }")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = nil")
+                            lines.append("    }")
+                        }
                     } else {
-                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
-                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
-                        lines.append("    } else {")
-                        lines.append("        self.\(property.name) = nil")
-                        lines.append("    }")
+                        // 非 Optional 陣列 + Transform
+                        if let defaultValue = property.defaultValue {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try jsonValue.map { try transformer.decode($0) }")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = \(defaultValue)")
+                            lines.append("    }")
+                        } else {
+                            lines.append("    let jsonValue = try \(containerName).decode(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                            lines.append("    self.\(property.name) = try jsonValue.map { try transformer.decode($0) }")
+                        }
                     }
                 } else {
-                    // 非 Optional 型別 + Transform
-                    if let defaultValue = property.defaultValue {
-                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
-                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
-                        lines.append("    } else {")
-                        lines.append("        self.\(property.name) = \(defaultValue)")
-                        lines.append("    }")
+                    // 單一元素 + Transform
+                    if property.isOptional {
+                        // Optional 型別 + Transform
+                        if let defaultValue = property.defaultValue {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = \(defaultValue)")
+                            lines.append("    }")
+                        } else {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = nil")
+                            lines.append("    }")
+                        }
                     } else {
-                        lines.append("    let jsonValue = try \(containerName).decode(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
-                        lines.append("    self.\(property.name) = try transformer.decode(jsonValue)")
+                        // 非 Optional 型別 + Transform
+                        if let defaultValue = property.defaultValue {
+                            lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                            lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                            lines.append("    } else {")
+                            lines.append("        self.\(property.name) = \(defaultValue)")
+                            lines.append("    }")
+                        } else {
+                            lines.append("    let jsonValue = try \(containerName).decode(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                            lines.append("    self.\(property.name) = try transformer.decode(jsonValue)")
+                        }
                     }
                 }
             } else {
@@ -677,6 +741,7 @@ extension CodableMacro {
         let keyName = property.customKey ?? property.name
         let jsonType = transform.jsonType
         let transformerType = transform.transformerType
+        let isArray = transform.isArray
 
         // 定義臨時 CodingKey
         let keyStructCode = """
@@ -691,38 +756,75 @@ extension CodableMacro {
             let transformer = \(transformerType)()
         """
 
-        if property.isOptional {
-            // Optional 型別：jsonValue 可能不存在
-            return """
-            \(keyStructCode)
-                if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
-                    self.\(property.name) = try transformer.decode(jsonValue)
+        if isArray {
+            // 陣列類型的轉換
+            if property.isOptional {
+                // Optional 陣列
+                return """
+                \(keyStructCode)
+                    if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
+                        self.\(property.name) = try jsonValue.map { try transformer.decode($0) }
+                    } else {
+                        self.\(property.name) = nil
+                    }
+                }
+                """
+            } else {
+                // 非 Optional 陣列
+                if let defaultValue = property.defaultValue {
+                    return """
+                    \(keyStructCode)
+                        if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
+                            self.\(property.name) = try jsonValue.map { try transformer.decode($0) }
+                        } else {
+                            self.\(property.name) = \(defaultValue)
+                        }
+                    }
+                    """
                 } else {
-                    self.\(property.name) = nil
+                    return """
+                    \(keyStructCode)
+                        let jsonValue = try transformContainer.decode(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)"))
+                        self.\(property.name) = try jsonValue.map { try transformer.decode($0) }
+                    }
+                    """
                 }
             }
-            """
         } else {
-            // 非 Optional 型別
-            if let defaultValue = property.defaultValue {
-                // 有預設值：jsonValue 不存在時使用預設值
+            // 單一元素的轉換
+            if property.isOptional {
+                // Optional 型別：jsonValue 可能不存在
                 return """
                 \(keyStructCode)
                     if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
                         self.\(property.name) = try transformer.decode(jsonValue)
                     } else {
-                        self.\(property.name) = \(defaultValue)
+                        self.\(property.name) = nil
                     }
                 }
                 """
             } else {
-                // 無預設值：jsonValue 必須存在
-                return """
-                \(keyStructCode)
-                    let jsonValue = try transformContainer.decode(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)"))
-                    self.\(property.name) = try transformer.decode(jsonValue)
+                // 非 Optional 型別
+                if let defaultValue = property.defaultValue {
+                    // 有預設值：jsonValue 不存在時使用預設值
+                    return """
+                    \(keyStructCode)
+                        if let jsonValue = try transformContainer.decodeIfPresent(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)")) {
+                            self.\(property.name) = try transformer.decode(jsonValue)
+                        } else {
+                            self.\(property.name) = \(defaultValue)
+                        }
+                    }
+                    """
+                } else {
+                    // 無預設值：jsonValue 必須存在
+                    return """
+                    \(keyStructCode)
+                        let jsonValue = try transformContainer.decode(\(jsonType).self, forKey: TransformKey(stringValue: "\(keyName)"))
+                        self.\(property.name) = try transformer.decode(jsonValue)
+                    }
+                    """
                 }
-                """
             }
         }
     }
@@ -859,19 +961,36 @@ extension CodableMacro {
             // 如果屬性有 transform，使用 transform 編碼邏輯
             if let transform = property.transform {
                 let transformerType = transform.transformerType
+                let isArray = transform.isArray
 
                 lines.append("    let transformer = \(transformerType)()")
 
-                if property.isOptional {
-                    // Optional 型別 + Transform
-                    lines.append("    if let value = self.\(property.name) {")
-                    lines.append("        let jsonValue = try transformer.encode(value)")
-                    lines.append("        try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
-                    lines.append("    }")
+                if isArray {
+                    // 陣列類型 + Transform
+                    if property.isOptional {
+                        // Optional 陣列 + Transform
+                        lines.append("    if let value = self.\(property.name) {")
+                        lines.append("        let jsonValue = try value.map { try transformer.encode($0) }")
+                        lines.append("        try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                        lines.append("    }")
+                    } else {
+                        // 非 Optional 陣列 + Transform
+                        lines.append("    let jsonValue = try self.\(property.name).map { try transformer.encode($0) }")
+                        lines.append("    try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    }
                 } else {
-                    // 非 Optional 型別 + Transform
-                    lines.append("    let jsonValue = try transformer.encode(self.\(property.name))")
-                    lines.append("    try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    // 單一元素 + Transform
+                    if property.isOptional {
+                        // Optional 型別 + Transform
+                        lines.append("    if let value = self.\(property.name) {")
+                        lines.append("        let jsonValue = try transformer.encode(value)")
+                        lines.append("        try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                        lines.append("    }")
+                    } else {
+                        // 非 Optional 型別 + Transform
+                        lines.append("    let jsonValue = try transformer.encode(self.\(property.name))")
+                        lines.append("    try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    }
                 }
             } else {
                 // 沒有 transform，使用原有邏輯
@@ -896,6 +1015,7 @@ extension CodableMacro {
 
         let keyName = property.customKey ?? property.name
         let transformerType = transform.transformerType
+        let isArray = transform.isArray
 
         let keyStructCode = """
         do {
@@ -909,24 +1029,48 @@ extension CodableMacro {
             let transformer = \(transformerType)()
         """
 
-        if property.isOptional {
-            // Optional 型別：值為 nil 時不編碼
-            return """
-            \(keyStructCode)
-                if let value = self.\(property.name) {
-                    let jsonValue = try transformer.encode(value)
+        if isArray {
+            // 陣列類型的轉換
+            if property.isOptional {
+                // Optional 陣列
+                return """
+                \(keyStructCode)
+                    if let value = self.\(property.name) {
+                        let jsonValue = try value.map { try transformer.encode($0) }
+                        try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+                    }
+                }
+                """
+            } else {
+                // 非 Optional 陣列
+                return """
+                \(keyStructCode)
+                    let jsonValue = try self.\(property.name).map { try transformer.encode($0) }
                     try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
                 }
+                """
             }
-            """
         } else {
-            // 非 Optional 型別
-            return """
-            \(keyStructCode)
-                let jsonValue = try transformer.encode(self.\(property.name))
-                try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+            // 單一元素的轉換
+            if property.isOptional {
+                // Optional 型別：值為 nil 時不編碼
+                return """
+                \(keyStructCode)
+                    if let value = self.\(property.name) {
+                        let jsonValue = try transformer.encode(value)
+                        try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+                    }
+                }
+                """
+            } else {
+                // 非 Optional 型別
+                return """
+                \(keyStructCode)
+                    let jsonValue = try transformer.encode(self.\(property.name))
+                    try transformContainer.encode(jsonValue, forKey: TransformKey(stringValue: "\(keyName)"))
+                }
+                """
             }
-            """
         }
     }
 
