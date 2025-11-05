@@ -397,20 +397,26 @@ extension CodableMacro {
             $0.keyPath == nil && $0.transform != nil
         }
         let nestedProperties = properties.filter {
-            $0.keyPath != nil
+            $0.keyPath != nil && $0.transform == nil
         }
+        let nestedTransformProperties = properties.filter {
+            $0.keyPath != nil && $0.transform != nil
+        }
+
+        // 合併 nested 和 nestedTransform 屬性進行分組
+        let allNestedProperties = nestedProperties + nestedTransformProperties
 
         // 巢狀屬性分組邏輯（重用現有邏輯）
         var pathGroups: [[Property]] = []
         var processedIndices: Set<Int> = []
 
-        for (index, property) in nestedProperties.enumerated() {
+        for (index, property) in allNestedProperties.enumerated() {
             if processedIndices.contains(index) { continue }
 
             var group = [property]
             processedIndices.insert(index)
 
-            for (otherIndex, otherProperty) in nestedProperties.enumerated() {
+            for (otherIndex, otherProperty) in allNestedProperties.enumerated() {
                 if otherIndex == index || processedIndices.contains(otherIndex) { continue }
 
                 if let path1 = property.keyPath, let path2 = otherProperty.keyPath {
@@ -604,19 +610,57 @@ extension CodableMacro {
 
             let containerName = path.count > 1 ? "container\(path.count - 1)" : "rootContainer"
 
-            if property.isOptional {
-                let optionalType = property.type.replacingOccurrences(of: "?", with: "")
-                if let defaultValue = property.defaultValue {
-                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+            // 如果屬性有 transform，使用 transform 解碼邏輯
+            if let transform = property.transform {
+                let transformerType = transform.transformerType
+                let jsonType = transform.jsonType
+
+                lines.append("    let transformer = \(transformerType)()")
+
+                if property.isOptional {
+                    // Optional 型別 + Transform
+                    if let defaultValue = property.defaultValue {
+                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                        lines.append("    } else {")
+                        lines.append("        self.\(property.name) = \(defaultValue)")
+                        lines.append("    }")
+                    } else {
+                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                        lines.append("    } else {")
+                        lines.append("        self.\(property.name) = nil")
+                        lines.append("    }")
+                    }
                 } else {
-                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    // 非 Optional 型別 + Transform
+                    if let defaultValue = property.defaultValue {
+                        lines.append("    if let jsonValue = try \(containerName).decodeIfPresent(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) {")
+                        lines.append("        self.\(property.name) = try transformer.decode(jsonValue)")
+                        lines.append("    } else {")
+                        lines.append("        self.\(property.name) = \(defaultValue)")
+                        lines.append("    }")
+                    } else {
+                        lines.append("    let jsonValue = try \(containerName).decode(\(jsonType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                        lines.append("    self.\(property.name) = try transformer.decode(jsonValue)")
+                    }
                 }
             } else {
-                // 非 Optional 屬性有預設值時，使用 decodeIfPresent + 預設值
-                if let defaultValue = property.defaultValue {
-                    lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+                // 沒有 transform，使用原有邏輯
+                if property.isOptional {
+                    let optionalType = property.type.replacingOccurrences(of: "?", with: "")
+                    if let defaultValue = property.defaultValue {
+                        lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+                    } else {
+                        lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(optionalType).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    }
                 } else {
-                    lines.append("    self.\(property.name) = try \(containerName).decode(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    // 非 Optional 屬性有預設值時，使用 decodeIfPresent + 預設值
+                    if let defaultValue = property.defaultValue {
+                        lines.append("    self.\(property.name) = try \(containerName).decodeIfPresent(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\")) ?? \(defaultValue)")
+                    } else {
+                        lines.append("    self.\(property.name) = try \(containerName).decode(\(property.type).self, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    }
                 }
             }
         }
@@ -812,10 +856,32 @@ extension CodableMacro {
             guard let path = property.keyPath, let lastKey = path.last else { continue }
             let containerName = path.count > 1 ? "container\(path.count - 1)" : "rootContainer"
 
-            if property.isOptional {
-                lines.append("    try \(containerName).encodeIfPresent(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+            // 如果屬性有 transform，使用 transform 編碼邏輯
+            if let transform = property.transform {
+                let transformerType = transform.transformerType
+
+                lines.append("    let transformer = \(transformerType)()")
+
+                if property.isOptional {
+                    // Optional 型別 + Transform
+                    lines.append("    if let value = self.\(property.name) {")
+                    lines.append("        let jsonValue = try transformer.encode(value)")
+                    lines.append("        try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    lines.append("    }")
+                } else {
+                    // 非 Optional 型別 + Transform
+                    lines.append("    let jsonValue = try transformer.encode(self.\(property.name))")
+                    lines.append("    try \(containerName).encode(jsonValue, forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                }
             } else {
-                lines.append("    try \(containerName).encode(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                // 沒有 transform，使用原有邏輯
+                if property.isOptional {
+                    lines.append("    if let \(property.name) = self.\(property.name) {")
+                    lines.append("        try \(containerName).encode(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                    lines.append("    }")
+                } else {
+                    lines.append("    try \(containerName).encode(\(property.name), forKey: DynamicKey(stringValue: \"\(lastKey)\"))")
+                }
             }
         }
 
