@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Tests",
+      "program": "${workspaceFolder}/.build/debug/codable-macroPackageTests.xctest",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Swift: Build"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Specific Test",
+      "program": "${workspaceFolder}/.build/debug/codable-macroPackageTests.xctest",
+      "args": ["--filter", "${input:testFilter}"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Swift: Build"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testFilter",
+      "type": "promptString",
+      "description": "Test filter pattern",
+      "default": "ComplexUseCaseTests"
+    }
+  ]
+}

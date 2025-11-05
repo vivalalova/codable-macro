@@ -46,6 +46,25 @@ dependencies: [
 )
 ```
 
+## 開發環境設定
+
+想要貢獻或在本地開發？查看 [開發環境設定指南](DEVELOPMENT.md) 了解：
+
+- 🐳 使用 Dev Container (推薦)
+- 💻 本地安裝 Swift 6.1
+- 🛠️ VS Code 配置和快捷鍵
+- 🧪 執行測試和調試
+- 🤝 貢獻指南
+
+快速開始：
+```bash
+# 使用 Dev Container (推薦)
+code .  # 在 VS Code 中開啟並選擇 "Reopen in Container"
+
+# 或本地開發
+swift build && swift test
+```
+
 ## 使用方法
 
 ### 基本使用

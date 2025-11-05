@@ -1,0 +1,25 @@
+{
+  "files.exclude": {
+    "**/.build": true,
+    "**/.swiftpm": true,
+    "**/Package.resolved": false
+  },
+  "search.exclude": {
+    "**/.build": true,
+    "**/.swiftpm": true
+  },
+  "files.watcherExclude": {
+    "**/.build": true,
+    "**/.swiftpm": true
+  },
+  "swift.path": "/usr/bin/swift",
+  "swift.buildPath": "${workspaceFolder}/.build",
+  "swift.autoGenerateLaunchConfigurations": true,
+  "editor.formatOnSave": true,
+  "[swift]": {
+    "editor.defaultFormatter": "sswg.swift-lang",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true
+  },
+  "terminal.integrated.defaultProfile.linux": "bash"
+}

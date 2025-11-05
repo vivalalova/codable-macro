@@ -1,0 +1,71 @@
+name: Swift CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    name: Test on Swift ${{ matrix.swift }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        swift: ["6.1"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: ${{ matrix.swift }}
+
+    - name: Print Swift version
+      run: swift --version
+
+    - name: Cache Swift packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          .build
+          ~/.cache/org.swift.swiftpm
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+
+    - name: Build
+      run: swift build -v
+
+    - name: Run tests
+      run: swift test -v
+
+    - name: Test with coverage (Linux only)
+      if: runner.os == 'Linux'
+      run: |
+        swift test --enable-code-coverage
+        xcrun llvm-cov show .build/debug/codable-macroPackageTests.xctest -instr-profile=.build/debug/codecov/default.profdata > coverage.txt || true
+
+    - name: Upload coverage reports
+      if: runner.os == 'Linux'
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.txt
+        fail_ci_if_error: false
+      continue-on-error: true
+
+  lint:
+    name: SwiftLint
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: SwiftLint
+      uses: norio-nomura/action-swiftlint@3.2.1
+      continue-on-error: true
+      with:
+        args: --strict
